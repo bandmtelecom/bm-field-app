@@ -1,4 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import ws from 'ws';
 
 const url = process.env.SUPABASE_URL;
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -13,9 +14,14 @@ if (!url || !serviceKey) {
  * Service-role client — BYPASSES row-level security. Used only here on the
  * server to read prices + all captured units and to write invoice drafts.
  * This key must never ship to the browser/phone.
+ *
+ * We pass a `ws` transport because supabase-js initializes a realtime client on
+ * construction, and Node < 22 has no global WebSocket. We never use realtime;
+ * this just satisfies the constructor. (Node 22+ wouldn't need it.)
  */
 export const admin: SupabaseClient = createClient(url, serviceKey, {
   auth: { persistSession: false, autoRefreshToken: false },
+  realtime: { transport: ws as unknown as any },
 });
 
 /** Verify a caller's Supabase access token → their profile (id, role, active). */
