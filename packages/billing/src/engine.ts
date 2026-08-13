@@ -1,13 +1,13 @@
 // The invoice engine. Pure function: JobInput → InvoiceDraft.
 // Every rule here is documented in docs/BILLING-RULES.md and covered by tests.
 
-import { RATE_CARD, rate } from './ratecard';
+import { RATE_CARD, rate } from './ratecard.js';
 import {
   singleFusionBand, ribbonBand, otdrTestBand, bareTestBand,
-} from './bands';
+} from './bands.js';
 import type {
   JobInput, LocationInput, InvoiceLine, InvoiceDraft, StructureType,
-} from './types';
+} from './types.js';
 
 const FIBER_MIN = 6;          // 6-fiber minimum per enclosure
 const DOWNTIME_RATE = 125;    // $/hr, DOWNTIME - CAPITAL PROJECT
