@@ -1,0 +1,48 @@
+# Render Blueprint — deploys both services from this one repo.
+# In Render: New + → Blueprint → connect this GitHub repo → it reads this file.
+# Fill the env vars marked "sync: false" in the Render dashboard (they're secrets).
+# See docs/SETUP-02-RENDER.md for the click-by-click.
+
+services:
+  # ---- Backend API (invoice drafting + KML export) ----
+  - type: web
+    name: bm-field-api
+    runtime: node
+    plan: starter            # always-on; free tier sleeps and would delay first request
+    rootDir: .
+    buildCommand: npm install && npm run build:billing && npm run build:api
+    startCommand: npm run start --workspace @bm/api
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: PORT
+        value: "8080"
+      - key: SUPABASE_URL
+        sync: false          # paste from Supabase → Settings → API
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false          # SECRET — server only
+      - key: CORS_ORIGINS
+        sync: false          # your web app URL(s)
+
+  # ---- Field PWA (static site) ----
+  - type: web
+    name: bm-field-web
+    runtime: static
+    rootDir: .
+    buildCommand: npm install && npm run build:billing && npm run build:web
+    staticPublishPath: apps/web/dist
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+      - key: VITE_API_BASE_URL
+        sync: false          # the bm-field-api URL once it's deployed
+    routes:
+      # SPA fallback so deep links work
+      - type: rewrite
+        source: /*
+        destination: /index.html
