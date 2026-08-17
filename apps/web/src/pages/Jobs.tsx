@@ -35,6 +35,9 @@ export default function Jobs() {
           <div className="sub">{profile?.full_name ?? ''} · {profile?.role}</div>
         </div>
         <div className="spacer" />
+        {profile?.role === 'admin' && (
+          <button className="iconbtn" onClick={() => nav('/admin')}>Admin</button>
+        )}
         <a className="iconbtn" href={kmlUrl()} target="_blank" rel="noreferrer">Map (KML)</a>
         <button className="iconbtn" onClick={() => signOut()}>Sign out</button>
       </div>

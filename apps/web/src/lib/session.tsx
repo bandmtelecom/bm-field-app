@@ -49,7 +49,7 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setUserId(uid);
       if (uid) await loadProfile(uid);
       setLoading(false);
-    });
+    }).catch(() => setLoading(false)); // always render the login screen, even if misconfigured
     const { data: sub } = supabase.auth.onAuthStateChange(async (_e, session) => {
       const uid = session?.user.id ?? null;
       setUserId(uid);

@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import { invoices } from './routes/invoices.js';
 import { kml } from './routes/kml.js';
+import { adminRouter } from './routes/admin.js';
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -14,6 +15,7 @@ app.get('/health', (_req, res) => res.json({ ok: true, service: 'bm-field-api' }
 
 app.use(invoices);
 app.use(kml);
+app.use(adminRouter);
 
 const port = Number(process.env.PORT ?? 8080);
 app.listen(port, () => {
