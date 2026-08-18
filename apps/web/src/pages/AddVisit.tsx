@@ -88,9 +88,14 @@ export default function AddVisit() {
         if (L.panel_ports.length) await supabase.from('panel_ports').insert(
           L.panel_ports.map((p, i) => ({ location_id: loc.id, panel: p.panel || null, port: p.port || null, position: p.position || null, pass_fail: p.pass_fail || null, ordinal: i })));
         if (L.downtimes.length) await supabase.from('downtime').insert(
-          L.downtimes.map((d, i) => ({ location_id: loc.id, hours: Number(d.hours) || 0, reason: d.reason, ordinal: i })));
+          L.downtimes.map((d, i) => ({ location_id: loc.id, hours: Number(d.hours) || 0, reason: d.reason || null, ordinal: i })));
         if (L.extras.length) await supabase.from('location_units').insert(
-          L.extras.map((code, i) => ({ location_id: loc.id, unit_code: code, qty: 1, ordinal: i })));
+          L.extras.map((code, i) => ({
+            location_id: loc.id, unit_code: code,
+            // per-each extras (CD/PMD) carry the count the tech typed; the rest bill 1
+            qty: Number(L.extra_qty?.[code]) > 0 ? Number(L.extra_qty[code]) : 1,
+            ordinal: i,
+          })));
       }
 
       nav(`/jobs/${id}`);

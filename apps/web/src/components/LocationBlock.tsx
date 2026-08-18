@@ -27,6 +27,8 @@ export interface LocationForm {
   panel_ports: { panel: string; port: string; position: string; pass_fail: '' | 'pass' | 'fail' }[];
   shots: { fiber_group: string; direction: string; distance_km: string; event: string }[];
   extras: string[];
+  /** counts for extras that bill per-each (e.g. TEST_CD_PMD). code → qty as typed. */
+  extra_qty: Record<string, string>;
 }
 
 export function emptyLocation(): LocationForm {
@@ -36,7 +38,7 @@ export function emptyLocation(): LocationForm {
     case_action: '', new_case_material_code: '', splice_type: '', splice_count: '',
     trays_added: '', test_fiber_count: '', test_type: 'otdr',
     narrative: '', as_found: '', as_built: '',
-    downtimes: [], cables: [], panel_ports: [], shots: [], extras: [],
+    downtimes: [], cables: [], panel_ports: [], shots: [], extras: [], extra_qty: {},
   };
 }
 
@@ -54,8 +56,21 @@ export default function LocationBlock({
       { enableHighAccuracy: true, timeout: 10000 },
     );
   }
-  const toggleExtra = (code: string) =>
-    set({ extras: value.extras.includes(code) ? value.extras.filter((c) => c !== code) : [...value.extras, code] });
+  function toggleExtra(code: string) {
+    if (value.extras.includes(code)) {
+      // turning it off also clears any count that was typed for it
+      const { [code]: _drop, ...rest } = value.extra_qty;
+      set({ extras: value.extras.filter((c) => c !== code), extra_qty: rest });
+    } else {
+      set({ extras: [...value.extras, code] });
+    }
+  }
+
+  // buttons limited to certain structure types (CD/PMD is Building-only) drop
+  // off the list entirely when the structure doesn't match.
+  const visibleExtras = EXTRA_UNITS.filter(
+    (u) => !u.only || u.only.includes(value.structure_type),
+  );
 
   return (
     <div className="block">
@@ -66,8 +81,9 @@ export default function LocationBlock({
 
       <div className="row">
         <div>
-          <label>PM location #</label>
-          <input value={value.pm_location_no} onChange={(e) => set({ pm_location_no: e.target.value })} />
+          <label>Location #</label>
+          <input value={value.pm_location_no} placeholder="Location number"
+            onChange={(e) => set({ pm_location_no: e.target.value })} />
         </div>
         <div>
           <label>Structure</label>
@@ -196,12 +212,13 @@ export default function LocationBlock({
 
       {/* downtime */}
       <RepeatList label="Downtime on site" rows={value.downtimes}
-        onAdd={() => set({ downtimes: [...value.downtimes, { hours: '', reason: 'waiting_construction' }] })}
+        onAdd={() => set({ downtimes: [...value.downtimes, { hours: '', reason: '' }] })}
         onRemove={(i) => set({ downtimes: value.downtimes.filter((_, x) => x !== i) })}
         render={(r, i) => (
           <div className="row" key={i}>
             <input placeholder="hrs" inputMode="decimal" value={r.hours} onChange={(e) => upd(value.downtimes, i, { hours: e.target.value }, (v) => set({ downtimes: v }))} />
             <select value={r.reason} onChange={(e) => upd(value.downtimes, i, { reason: e.target.value }, (v) => set({ downtimes: v }))}>
+              <option value="">— pick a reason —</option>
               {DOWNTIME_REASONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
           </div>
@@ -210,11 +227,22 @@ export default function LocationBlock({
       {/* tap-to-add extras */}
       <label>Other work at this closure</label>
       <div className="seg">
-        {EXTRA_UNITS.map((u) => (
+        {visibleExtras.map((u) => (
           <button type="button" key={u.code} className={value.extras.includes(u.code) ? 'on' : ''}
             style={{ minWidth: '46%' }} onClick={() => toggleExtra(u.code)}>{u.label}</button>
         ))}
       </div>
+
+      {/* per-each extras ask for a count once they're switched on */}
+      {visibleExtras.filter((u) => u.qty && value.extras.includes(u.code)).map((u) => (
+        <div key={`${u.code}-qty`} style={{ marginTop: 10 }}>
+          <label>{u.qty!.label}</label>
+          <input inputMode="numeric" placeholder="0"
+            value={value.extra_qty[u.code] ?? ''}
+            onChange={(e) => set({ extra_qty: { ...value.extra_qty, [u.code]: e.target.value } })} />
+          {u.qty!.hint && <div className="muted small">{u.qty!.hint}</div>}
+        </div>
+      ))}
     </div>
   );
 }

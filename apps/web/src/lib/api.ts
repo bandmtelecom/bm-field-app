@@ -30,6 +30,27 @@ export function kmlUrl() {
   return `${BASE}/closures.kml`;
 }
 
+/**
+ * Download the draft laid onto the customer's full rate card (.xlsx).
+ * Goes through fetch rather than a plain link because the endpoint is
+ * office/admin-only and needs the auth header.
+ */
+export async function downloadRateCardXlsx(jobId: string, bmNumber: string) {
+  const res = await fetch(`${BASE}/jobs/${jobId}/invoice.xlsx`, { headers: await authHeader() });
+  if (!res.ok) {
+    throw new Error((await res.json().catch(() => ({})))?.error ?? 'Could not build the rate card');
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${bmNumber || 'job'}-rate-card.xlsx`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
 // ---- admin: user management ------------------------------------------------
 export interface AdminUser {
   id: string; email: string; full_name: string;

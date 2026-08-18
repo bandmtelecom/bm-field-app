@@ -63,6 +63,62 @@ _Read this first on a new session. Updated 2026-08-13 — deployed live._
   directly in Supabase Auth default to role `tech` — fix in Admin → Users → role
   dropdown → admin.
 
+## v0.2.2 — field-form tweaks, maintenance-window adder, rate-card export (2026-08-18)
+
+**⚠ RUN THE SQL FIRST, THEN PUSH.** `supabase/migrations/20260818000004_maint_window.sql`
+adds `jobs.maint_window`. The new code reads that column — if the code goes live
+before the column exists, the job screen and Mark Complete will error for the
+crew. Adding the column is invisible to the version currently running, so there
+is no broken window if you do it in this order.
+
+### Field form
+- "PM location #" is now **Location #** with an empty box (and the read-only
+  detail view says "Location #" too).
+- Downtime reasons gained **Troubleshooting / DT**, and a new downtime row now
+  starts blank ("— pick a reason —") instead of defaulting to "Waiting on
+  construction". A blank reason saves as null and reads back as "unspecified".
+- **CD / PMD test adder** button (rate card unit 250, $300 EACH) appears in
+  "Other work at this closure" **only when Structure = Building**. Tapping it on
+  opens a count box; the count bills as the quantity. On any other structure the
+  button is not in the list at all.
+
+### Maintenance window (scheduled night work)
+- New job-level flag, set in **Admin → Create job** ("Normal hours" /
+  "Maintenance window"). Capital jobs only — pick Emergency/LOR and the switch
+  disappears and clears itself.
+- Every splice on a flagged job carries the adder at the same billed quantity as
+  the splice line (6-fiber minimum included): unit 203 FUSION_MAINT_ADDER $6.50
+  for single fusion, unit 215 RIBBON_MAINT_ADDER $24.00 for ribbon.
+- **Emergency/LOR can never get the adder** — that path returns hourly before
+  any splice line is produced. Covered by a test that forces the flag on.
+- Flagged jobs show a 🌙 pill on the job screen.
+
+### Testing rule
+- B&M cannot bill testing on a job that involved any splicing. The OTDR/bare
+  test lines already followed that rule job-wide; the new CD/PMD adder now does
+  too, on capital AND emergency. A test-only job still bills both.
+
+### Rate-card Excel export
+- Office/admin: **View draft invoice → ⬇ Download rate card (.xlsx)**.
+- `GET /jobs/:id/invoice.xlsx` lays the draft onto the customer's own rate card
+  (`apps/api/assets/rate-card-template.xlsx`, committed as supplied). All 251
+  rows in their order, their rates, their formulas, their formatting. We write
+  ONLY the Quantity column plus a job stamp on the two blank rows above the
+  header. Blank rows stay blank and editable.
+- **"ACTUAL" rows take dollars, not hours.** Unit 76 DOWNTIME - CAPITAL PROJECT
+  is priced $1.00/unit, so 4 hr of downtime writes **500**, not 4. Same for unit
+  251 traffic control and 252 trip charge. Unit 223 SPLICER - FIBER is a real
+  $125.00 HOUR row, so hours go in as hours there. The rule is generic: when the
+  billed rate differs from the card's unit rate, the extended dollars go in the
+  quantity cell. Verified: sheet TOTAL matches the engine to the penny.
+- **Formula cells keep their cached value.** A formula cell stores both the
+  formula and its last computed answer; Excel renders the answer. Writing the
+  formula without the answer makes the cell look blank. The export refreshes the
+  cached value on each filled row's Extended cell and on the bottom TOTAL, and
+  never touches any formula.
+- Adds `exceljs` to the API. If that build ever fails, Render keeps the previous
+  API live and only the download button errors.
+
 ## RESUME HERE — end-to-end smoke test on 26-408
 Add a visit: MH · Re-enter · Single · 48 splices · 2 hr downtime → Mark complete
 → View draft invoice. **Expected total $2,732.98**

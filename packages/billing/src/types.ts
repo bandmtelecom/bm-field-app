@@ -44,6 +44,10 @@ export interface VisitInput {
 export interface JobInput {
   bmNumber: string;
   billingMode: BillingMode;
+  /** Scheduled maintenance window (night work) — adds the per-splice maint adder
+   *  to every splice line. Capital jobs only; emergency/LOR bills hourly and
+   *  never reaches the adder, so a night LOR can't pick it up. */
+  maintWindow?: boolean;
   visits: VisitInput[];
 }
 

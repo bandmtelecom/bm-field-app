@@ -93,7 +93,7 @@ export default function LocationDetail({ loc }: { loc: any }) {
           <div className="muted small">
             {structure}
             {loc.structure_owner ? ` · ${loc.structure_owner}` : ''}
-            {loc.pm_location_no ? ` · PM loc ${loc.pm_location_no}` : ''}
+            {loc.pm_location_no ? ` · Location #${loc.pm_location_no}` : ''}
           </div>
         </div>
         {hasGps && (

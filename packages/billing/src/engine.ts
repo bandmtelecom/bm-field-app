@@ -61,10 +61,11 @@ export function computeInvoice(job: JobInput): InvoiceDraft {
         `Emergency/LOR hourly — ${hours} hr across ${job.visits.length} visit(s)`));
     }
     // materials still bill when added
+    const splicingEmg = jobHasSplicing(job);
     for (const v of job.visits) {
       for (const loc of v.locations) {
         pushMaterials(lines, loc, v.date);
-        pushExtras(lines, loc, v.date);
+        pushExtras(lines, loc, v.date, splicingEmg);
       }
     }
     return finalize(job, lines);
@@ -109,24 +110,36 @@ export function computeInvoice(job: JobInput): InvoiceDraft {
       }
 
       // splices (6-fiber minimum per enclosure)
+      // On a scheduled maintenance-window (night) job every splice also carries
+      // the maint adder, at the same billed quantity as the splice line itself.
+      // Emergency/LOR never reaches here — that path returns hourly above — so a
+      // night LOR can't pick up the adder.
       if (loc.spliceType && (loc.spliceCount ?? 0) > 0) {
         if (loc.spliceType === 'single') {
           const count = Math.max(loc.spliceCount ?? 0, FIBER_MIN);
           const band = singleFusionBand(count);
           lines.push(line(band, count, rate(band),
             `${count} single splices · ${src}`));
+          if (job.maintWindow) {
+            lines.push(line('FUSION_MAINT_ADDER', count, rate('FUSION_MAINT_ADDER'),
+              `Maintenance window adder — ${count} splices · ${src}`));
+          }
         } else {
           const ribbons = Math.max(loc.spliceCount ?? 0, 1); // >=1 ribbon
           const band = ribbonBand(ribbons);
           lines.push(line(band, ribbons, rate(band),
             `${ribbons} ribbon splices · ${src}`));
+          if (job.maintWindow) {
+            lines.push(line('RIBBON_MAINT_ADDER', ribbons, rate('RIBBON_MAINT_ADDER'),
+              `Maintenance window adder — ${ribbons} ribbons · ${src}`));
+          }
         }
       }
 
       // trays + tray material
       pushMaterials(lines, loc, v.date);
       // tap-to-add extras (civil, case work, misc materials)
-      pushExtras(lines, loc, v.date);
+      pushExtras(lines, loc, v.date, hasSplicing);
 
       // testing — only counted here; zeroed later if the job has any splicing
       if (!hasSplicing && (loc.testFiberCount ?? 0) > 0) {
@@ -169,9 +182,15 @@ function pushMaterials(lines: InvoiceLine[], loc: LocationInput, date: string) {
   }
 }
 
-function pushExtras(lines: InvoiceLine[], loc: LocationInput, date: string) {
+// Tap-to-add units that are TESTING charges. B&M cannot bill testing on a job
+// that involved any splicing, so these drop out exactly like the OTDR/bare test
+// lines do — even though the tech correctly reported doing the work.
+const TESTING_EXTRAS = new Set(['TEST_CD_PMD']);
+
+function pushExtras(lines: InvoiceLine[], loc: LocationInput, date: string, hasSplicing = false) {
   const src = `${loc.closureCode ?? 'closure'} · ${date}`;
   for (const e of loc.extraUnits ?? []) {
+    if (hasSplicing && TESTING_EXTRAS.has(e.code)) continue;
     const qty = e.qty ?? 1;
     lines.push(line(e.code, qty, rate(e.code),
       e.note ? `${e.note} · ${src}` : `Added unit · ${src}`));

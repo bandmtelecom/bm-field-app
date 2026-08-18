@@ -221,3 +221,84 @@ describe('invoice totals', () => {
     expect(d.lines.every(l => l.source && l.source.length > 0)).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+describe('maintenance window adder (scheduled night work)', () => {
+  it('single fusion: adder rides at the same billed count', () => {
+    const d = computeInvoice(capitalJob([
+      loc({ id: 'a', closureCode: 'Lumen-0001', spliceType: 'single', spliceCount: 48 }),
+    ], { maintWindow: true }));
+    expect(lineFor(d, 'FUSION_MAINT_ADDER')).toHaveLength(1);
+    expect(lineFor(d, 'FUSION_MAINT_ADDER')[0].quantity).toBe(48);
+    expect(totalOf(d, 'FUSION_MAINT_ADDER')).toBe(48 * 6.5);
+  });
+
+  it('adder follows the 6-fiber minimum, same as the splice line', () => {
+    const d = computeInvoice(capitalJob([
+      loc({ id: 'a', closureCode: 'Lumen-0001', spliceType: 'single', spliceCount: 2 }),
+    ], { maintWindow: true }));
+    expect(lineFor(d, 'FUSION_MAINT_ADDER')[0].quantity).toBe(6);
+  });
+
+  it('ribbon work gets the ribbon adder, not the fusion one', () => {
+    const d = computeInvoice(capitalJob([
+      loc({ id: 'a', closureCode: 'Lumen-0001', spliceType: 'ribbon', spliceCount: 4 }),
+    ], { maintWindow: true }));
+    expect(lineFor(d, 'RIBBON_MAINT_ADDER')[0].quantity).toBe(4);
+    expect(totalOf(d, 'RIBBON_MAINT_ADDER')).toBe(96);
+    expect(lineFor(d, 'FUSION_MAINT_ADDER')).toHaveLength(0);
+  });
+
+  it('no adder when the flag is off', () => {
+    const d = computeInvoice(capitalJob([
+      loc({ id: 'a', closureCode: 'Lumen-0001', spliceType: 'single', spliceCount: 48 }),
+    ]));
+    expect(lineFor(d, 'FUSION_MAINT_ADDER')).toHaveLength(0);
+  });
+
+  it('EMERGENCY/LOR never gets the adder, even flagged and worked at night', () => {
+    const d = computeInvoice({
+      bmNumber: '26-349', billingMode: 'emergency', maintWindow: true,
+      visits: [{ id: 'v1', date: '2026-05-22', leadHours: 6, locations: [
+        loc({ id: 'a', closureCode: 'Lumen-0001', spliceType: 'single', spliceCount: 48 }),
+      ] }],
+    });
+    expect(lineFor(d, 'FUSION_MAINT_ADDER')).toHaveLength(0);
+    expect(lineFor(d, 'RIBBON_MAINT_ADDER')).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe('testing cannot be billed when the job involved splicing', () => {
+  it('CD/PMD adder drops out when the job has any splicing', () => {
+    const d = computeInvoice(capitalJob([
+      loc({ id: 'a', structureType: 'building', closureCode: 'Lumen-0001',
+            spliceType: 'single', spliceCount: 12, testFiberCount: 24, testType: 'otdr',
+            extraUnits: [{ code: 'TEST_CD_PMD', qty: 6 }] }),
+    ]));
+    expect(lineFor(d, 'TEST_CD_PMD')).toHaveLength(0);
+    expect(d.lines.filter(l => l.unitCode.startsWith('TEST_OTDR'))).toHaveLength(0);
+  });
+
+  it('test-only job bills both the test and the CD/PMD adder', () => {
+    const d = computeInvoice(capitalJob([
+      loc({ id: 'a', structureType: 'building', closureCode: 'Lumen-0001',
+            testFiberCount: 24, testType: 'otdr',
+            extraUnits: [{ code: 'TEST_CD_PMD', qty: 6 }] }),
+    ]));
+    expect(totalOf(d, 'TEST_CD_PMD')).toBe(1800);
+    expect(d.lines.filter(l => l.unitCode.startsWith('TEST_OTDR'))).toHaveLength(1);
+  });
+
+  it('LOR with splicing also drops the CD/PMD adder', () => {
+    const d = computeInvoice({
+      bmNumber: '26-349', billingMode: 'emergency',
+      visits: [{ id: 'v1', date: '2026-05-22', leadHours: 6, locations: [
+        loc({ id: 'a', structureType: 'building', closureCode: 'Lumen-0001',
+              spliceType: 'single', spliceCount: 12,
+              extraUnits: [{ code: 'TEST_CD_PMD', qty: 6 }] }),
+      ] }],
+    });
+    expect(lineFor(d, 'TEST_CD_PMD')).toHaveLength(0);
+  });
+});

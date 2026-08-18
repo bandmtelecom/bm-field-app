@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
-import { getInvoiceDraft } from '../lib/api';
+import { getInvoiceDraft, downloadRateCardXlsx } from '../lib/api';
 
 const money = (n: number) => `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -13,6 +13,9 @@ export default function InvoiceView() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
+  const [job, setJob] = useState<{ bm_number: string } | null>(null);
+  const [dl, setDl] = useState(false);
+  const [dlErr, setDlErr] = useState<string | null>(null);
 
   const isOffice = profile?.role === 'office' || profile?.role === 'admin';
 
@@ -20,7 +23,16 @@ export default function InvoiceView() {
     if (!isOffice) { setLoading(false); return; }
     getInvoiceDraft(id!).then((d) => { setData(d); setLoading(false); })
       .catch(() => setLoading(false));
+    supabase.from('jobs').select('bm_number').eq('id', id).single()
+      .then(({ data: j }) => setJob((j as any) ?? null));
   }, [id, isOffice]);
+
+  async function getRateCard() {
+    setDl(true); setDlErr(null);
+    try { await downloadRateCardXlsx(id!, job?.bm_number ?? ''); }
+    catch (e: any) { setDlErr(e.message); }
+    setDl(false);
+  }
 
   async function approve() {
     if (!data?.draft?.id) return;
@@ -65,6 +77,17 @@ export default function InvoiceView() {
               </tfoot>
             </table>
             {msg && <div className="small" style={{ marginTop: 10, color: 'var(--ok)' }}>{msg}</div>}
+
+            <div style={{ height: 12 }} />
+            <button className="btn ghost" disabled={dl} onClick={getRateCard}>
+              {dl ? 'Building…' : '⬇ Download rate card (.xlsx)'}
+            </button>
+            <p className="muted small" style={{ marginTop: 4 }}>
+              The customer's full rate card with these quantities filled in. Every other
+              row is blank and editable — type a quantity and the sheet totals it itself.
+            </p>
+            {dlErr && <div className="error">{dlErr}</div>}
+
             {data.draft.status === 'draft' && (
               <><div style={{ height: 12 }} /><button className="btn ok" onClick={approve}>Approve invoice</button></>
             )}

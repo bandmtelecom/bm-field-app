@@ -199,6 +199,7 @@ function JobsPanel() {
   const [idType, setIdType] = useState('n_number');
   const [title, setTitle] = useState('');
   const [mode, setMode] = useState('capital');
+  const [maintWindow, setMaintWindow] = useState(false);
 
   // add-customer
   const [newCustName, setNewCustName] = useState('');
@@ -215,6 +216,9 @@ function JobsPanel() {
     setMode(idType === 'lor' || idType === 'tt' ? 'emergency' : 'capital');
   }, [idType]);
 
+  // the maint-window adder is capital-only — switching to emergency clears it
+  useEffect(() => { if (mode === 'emergency') setMaintWindow(false); }, [mode]);
+
   async function addCustomer() {
     if (!newCustName.trim() || !newCustCode.trim()) return;
     const { error } = await supabase.from('customers')
@@ -229,10 +233,11 @@ function JobsPanel() {
     const { error } = await supabase.from('jobs').insert({
       bm_number: bm.trim(), customer_id: customerId, identifier: identifier.trim() || null,
       identifier_type: idType, title: title.trim() || null, billing_mode: mode, status: 'open',
+      maint_window: mode === 'capital' ? maintWindow : false,
     });
     if (error) { setErr(error.message); setBusy(false); return; }
-    setMsg(`Job ${bm} created — it's now on the crew's roster.`);
-    setBm(''); setIdentifier(''); setTitle('');
+    setMsg(`Job ${bm} created — it's now on the crew's roster.${maintWindow && mode === 'capital' ? ' Maintenance-window adder is on.' : ''}`);
+    setBm(''); setIdentifier(''); setTitle(''); setMaintWindow(false);
     setBusy(false);
   }
 
@@ -272,6 +277,28 @@ function JobsPanel() {
             <button type="button" className={mode === 'capital' ? 'on' : ''} onClick={() => setMode('capital')}>Capital (per-unit)</button>
             <button type="button" className={mode === 'emergency' ? 'on' : ''} onClick={() => setMode('emergency')}>Emergency/LOR (hourly)</button>
           </div>
+
+          {/* Night work adder — capital only. LOR/emergency bills hourly and never
+              gets the adder, so the switch isn't offered there at all. */}
+          {mode === 'capital' ? (
+            <>
+              <label style={{ marginTop: 12 }}>Scheduled night work</label>
+              <div className="seg">
+                <button type="button" className={!maintWindow ? 'on' : ''} onClick={() => setMaintWindow(false)}>Normal hours</button>
+                <button type="button" className={maintWindow ? 'on' : ''} onClick={() => setMaintWindow(true)}>Maintenance window</button>
+              </div>
+              <p className="muted small" style={{ marginTop: 4 }}>
+                Turn this on only for <strong>scheduled</strong> night work. It adds the
+                maintenance-window adder to every splice on the job. Leave it off for
+                normal daytime work.
+              </p>
+            </>
+          ) : (
+            <p className="muted small" style={{ marginTop: 12 }}>
+              Emergency/LOR bills hourly — the maintenance-window adder never applies,
+              even when the work happens at night.
+            </p>
+          )}
           {err && <div className="error">{err}</div>}
           {msg && <div className="small" style={{ color: 'var(--ok)', marginTop: 8 }}>{msg}</div>}
           <div style={{ height: 12 }} />

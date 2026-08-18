@@ -8,7 +8,7 @@ import type { JobInput, VisitInput, LocationInput, StructureType, CaseAction, Sp
 export async function loadJobInput(jobId: string): Promise<JobInput> {
   const { data: job, error: jErr } = await admin
     .from('jobs')
-    .select('id, bm_number, billing_mode')
+    .select('id, bm_number, billing_mode, maint_window')
     .eq('id', jobId)
     .single();
   if (jErr || !job) throw new Error(`Job not found: ${jobId}`);
@@ -80,6 +80,7 @@ export async function loadJobInput(jobId: string): Promise<JobInput> {
   return {
     bmNumber: job.bm_number,
     billingMode: (job.billing_mode ?? 'capital') as 'capital' | 'emergency',
+    maintWindow: job.maint_window === true,
     visits: visitInputs,
   };
 }

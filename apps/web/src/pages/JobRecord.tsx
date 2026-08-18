@@ -28,7 +28,7 @@ export default function JobRecord() {
 
   async function load() {
     const { data: j } = await supabase.from('jobs')
-      .select('id, bm_number, identifier, identifier_type, title, billing_mode, status, customer:customers(name, code)')
+      .select('id, bm_number, identifier, identifier_type, title, billing_mode, maint_window, status, customer:customers(name, code)')
       .eq('id', id).single();
     setJob(j as any);
     const { data: v } = await supabase.from('visits')
@@ -70,6 +70,7 @@ export default function JobRecord() {
             {job.billing_mode === 'emergency'
               ? <span className="badge emergency">LOR / Emergency — hourly</span>
               : <span className="pill">Capital — per unit</span>}
+            {job.maint_window && <span className="pill" style={{ marginLeft: 6 }}>🌙 Maintenance window</span>}
           </div>
         </div>
 
@@ -105,7 +106,7 @@ export default function JobRecord() {
                     >
                       <span className="small">
                         <span style={{ display: 'inline-block', width: 14 }}>{open ? '▾' : '▸'}</span>
-                        📍 <strong>{l.closures?.closure_code ?? `Loc ${l.pm_location_no ?? ''}`}</strong>
+                        📍 <strong>{l.closures?.closure_code ?? `Location ${l.pm_location_no ?? ''}`}</strong>
                         {' · '}{STRUCTURE_LABELS[l.structure_type as keyof typeof STRUCTURE_LABELS] ?? l.structure_type}
                         {l.splice_type ? ` · ${l.splice_count} ${l.splice_type}` : ''}
                       </span>
