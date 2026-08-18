@@ -55,7 +55,24 @@ export function SessionProvider({ children }: { children: ReactNode }) {
       setUserId(uid);
       if (uid) await loadProfile(uid); else setProfile(null);
     });
-    return () => sub.subscription.unsubscribe();
+
+    // Re-read the profile whenever the app comes back to the foreground. A role
+    // change (tech → admin) or a lock-out then takes effect on the next glance
+    // at the phone instead of requiring a sign-out/sign-in.
+    async function refresh() {
+      if (document.visibilityState !== 'visible') return;
+      const { data } = await supabase.auth.getSession();
+      const uid = data.session?.user.id ?? null;
+      if (uid) await loadProfile(uid);
+    }
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+
+    return () => {
+      sub.subscription.unsubscribe();
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
   }, []);
 
   const value: SessionState = {

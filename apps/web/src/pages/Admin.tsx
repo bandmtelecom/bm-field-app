@@ -125,13 +125,18 @@ function UsersPanel({ selfId }: { selfId: string }) {
         <h2>Users</h2>
         {loading ? <div className="muted small">Loading…</div> : (
           <table>
-            <thead><tr><th>User</th><th>Role</th><th className="num">Status</th></tr></thead>
+            <thead><tr><th>User</th><th>Role</th><th>Status</th><th className="num">Action</th></tr></thead>
             <tbody>
               {users.map((u) => (
                 <tr key={u.id}>
                   <td>
                     {u.full_name || <span className="muted">—</span>}
                     <div className="muted" style={{ fontSize: 11 }}>{u.email}</div>
+                    <div className="muted" style={{ fontSize: 11 }}>
+                      {u.last_sign_in_at
+                        ? `last in ${new Date(u.last_sign_in_at).toLocaleDateString()}`
+                        : 'never signed in'}
+                    </div>
                   </td>
                   <td>
                     <select value={u.role} onChange={(e) => setUserRole(u, e.target.value)}
@@ -141,12 +146,22 @@ function UsersPanel({ selfId }: { selfId: string }) {
                       <option value="admin">admin</option>
                     </select>
                   </td>
+                  {/* Status is a LABEL, never a button. The button is the ACTION. */}
+                  <td>
+                    <span className="badge" style={{
+                      background: u.is_active ? 'rgba(46,160,67,.18)' : 'rgba(248,81,73,.18)',
+                      color: u.is_active ? 'var(--ok)' : '#f85149',
+                      whiteSpace: 'nowrap',
+                    }}>
+                      {u.is_active ? '● Active' : '○ Locked out'}
+                    </span>
+                  </td>
                   <td className="num">
                     {u.id === selfId ? <span className="pill">you</span> : (
                       <button className={u.is_active ? 'rm' : 'addline'}
-                        style={{ padding: '4px 8px', width: 'auto', fontSize: 12 }}
+                        style={{ padding: '4px 8px', width: 'auto', fontSize: 12, whiteSpace: 'nowrap' }}
                         onClick={() => toggleActive(u)}>
-                        {u.is_active ? 'Deactivate' : 'Reactivate'}
+                        {u.is_active ? 'Lock out' : 'Restore access'}
                       </button>
                     )}
                   </td>
@@ -156,7 +171,15 @@ function UsersPanel({ selfId }: { selfId: string }) {
           </table>
         )}
         <p className="muted small" style={{ marginTop: 8 }}>
-          Deactivate = instant lockout (can't log in, cache wipes). Reactivate restores access.
+          <strong>Status</strong> is what the account is right now. The button beside it is what
+          tapping it will do — <strong>Lock out</strong> kills access instantly (can't log in, cache
+          wipes); <strong>Restore access</strong> puts them back.
+        </p>
+        <p className="muted small">
+          <strong>Role</strong> controls what they see. <strong>tech</strong> — no prices, no Admin
+          button. <strong>office</strong> — prices and invoices. <strong>admin</strong> — prices,
+          invoices, and the Admin button (add users, create jobs). After changing someone's role,
+          have them sign out and back in.
         </p>
       </div>
     </>

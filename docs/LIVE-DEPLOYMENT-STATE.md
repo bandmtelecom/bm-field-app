@@ -44,6 +44,25 @@ _Read this first on a new session. Updated 2026-08-13 — deployed live._
 - **To add Matt King + Billie as admins:** deploy v0.2.0, then Admin → Users → Add user
   (their email + a temp password + role Admin). No SQL needed anymore.
 
+## v0.2.1 — see prior work + clearer user management (2026-08-18)
+- **Tap any location in the running record → full read-only detail.** Opens under the
+  location: structure + owner + GPS (Google Maps link), case action / enclosure,
+  splice count & type, trays, fibers tested, as-found / as-built / notes, cables with
+  footages, panel ports, OTDR shots, downtime, and any additional units logged.
+  Child tables load on demand, so the list stays fast. No prices anywhere in this
+  panel — it renders identically for a tech and for the office.
+- **Users panel fixed:** the Status column was an action button labeled "Deactivate",
+  which read as if everyone WAS deactivated. Status is now a plain label
+  (● Active / ○ Locked out) with the action in its own column ("Lock out" /
+  "Restore access"), plus each user's last sign-in date and a plain-English note on
+  what each role can see.
+- **Role changes take effect on app focus.** The profile is re-read whenever the PWA
+  comes back to the foreground, so promoting someone tech → admin (or locking them
+  out) lands on their next glance at the phone instead of needing a sign-out.
+- **Note on the Admin button:** it only shows for role `admin`. Accounts created
+  directly in Supabase Auth default to role `tech` — fix in Admin → Users → role
+  dropdown → admin.
+
 ## RESUME HERE — end-to-end smoke test on 26-408
 Add a visit: MH · Re-enter · Single · 48 splices · 2 hr downtime → Mark complete
 → View draft invoice. **Expected total $2,732.98**
