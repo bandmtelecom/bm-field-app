@@ -10,7 +10,8 @@ import type {
 } from './types.js';
 
 const FIBER_MIN = 6;          // 6-fiber minimum per enclosure
-const DOWNTIME_RATE = 125;    // $/hr, DOWNTIME - CAPITAL PROJECT
+const DOWNTIME_RATE = 125;    // $/hr, DOWNTIME - CAPITAL PROJECT (capital only)
+const TRAVEL_HOURS_PER_TECH = 2;  // 1 hr to the job + 1 hr back, per tech, per trip (LOR only)
 const SETUP_BY_STRUCTURE: Record<StructureType, string> = {
   mh: 'SETUP_MH',
   hh: 'SETUP_HH',
@@ -52,30 +53,41 @@ function jobHasSplicing(job: JobInput): boolean {
 export function computeInvoice(job: JobInput): InvoiceDraft {
   const lines: InvoiceLine[] = [];
 
-  if (job.billingMode === 'emergency') {
-    // ---- Emergency / LOR: hourly splicer + materials only ----
-    const hours = round2(
-      job.visits.reduce((s, v) => s + (v.leadHours ?? 0), 0));
-    if (hours > 0) {
-      lines.push(line('SPLICER_FIBER', hours, rate('SPLICER_FIBER'),
-        `Emergency/LOR hourly — ${hours} hr across ${job.visits.length} visit(s)`));
-    }
-    // materials still bill when added
-    const splicingEmg = jobHasSplicing(job);
-    for (const v of job.visits) {
-      for (const loc of v.locations) {
-        pushMaterials(lines, loc, v.date);
-        pushExtras(lines, loc, v.date, splicingEmg);
-      }
-    }
-    return finalize(job, lines);
-  }
-
-  // ---- Capital / day-to-day: per-unit ----
+  // Capital and Emergency/LOR bill the SAME units — every setup, re-enter,
+  // splice, tray, case and extra the crew earned. The difference is the hours:
+  //
+  //   capital    → downtime bills as unit 76 DOWNTIME - CAPITAL PROJECT,
+  //                $125/hr, entered on the rate card as dollars
+  //   emergency  → unit 223 SPLICER - FIBER ($125/hr), which ALSO covers travel:
+  //                1 hr out + 1 hr back, PER TECH, per trip
+  //
+  // Downtime is PER TECH on both: 2 hr with 3 techs = 6 billable hours.
+  // On-site WORKING time does NOT bill hourly — the units cover it.
+  //
+  // Unit 223 is emergency/LOR only; unit 76 is capital only. They never mix.
+  const isEmergency = job.billingMode === 'emergency';
   const hasSplicing = jobHasSplicing(job);
-  let downtimeHours = 0;
+  let downtimeHours = 0;       // capital: raw hours · emergency: hours × techs
+  let travelHours = 0;
+  let techTrips = 0;           // for the invoice description
+
+  // Drive time is only earned when B&M rolls out on the call. If the customer's
+  // tech scheduled it a day or two out, no travel hours — but downtime on site
+  // still bills under 223.
+  const billsTravel = isEmergency && job.scheduledAhead !== true;
 
   for (const v of job.visits) {
+    // a visit can't happen with nobody on it — never count fewer than one tech
+    const techCount = Math.max(v.techs?.length ?? 0, 1);
+    if (billsTravel) {
+      travelHours += TRAVEL_HOURS_PER_TECH * techCount;
+      techTrips += techCount;
+    }
+    // Downtime bills for EVERY tech standing on it, on capital and LOR alike:
+    // 2 hr of downtime with 3 techs is 6 billable hours. Counted per visit so a
+    // job worked by different crews on different nights comes out right.
+    const visitDowntime = v.locations.reduce((s, l) => s + (l.downtimeHours ?? 0), 0);
+    downtimeHours += visitDowntime * techCount;
     // one setup per hole per visit
     const seenHoles = new Set<string>();
     for (const loc of v.locations) {
@@ -110,17 +122,17 @@ export function computeInvoice(job: JobInput): InvoiceDraft {
       }
 
       // splices (6-fiber minimum per enclosure)
-      // On a scheduled maintenance-window (night) job every splice also carries
-      // the maint adder, at the same billed quantity as the splice line itself.
-      // Emergency/LOR never reaches here — that path returns hourly above — so a
-      // night LOR can't pick up the adder.
+      // On a scheduled maintenance-window (night) CAPITAL job every splice also
+      // carries the maint adder, at the same billed quantity as the splice line.
+      // An LOR worked at night never gets it, even if the flag is somehow set.
+      const maintAdder = job.maintWindow === true && !isEmergency;
       if (loc.spliceType && (loc.spliceCount ?? 0) > 0) {
         if (loc.spliceType === 'single') {
           const count = Math.max(loc.spliceCount ?? 0, FIBER_MIN);
           const band = singleFusionBand(count);
           lines.push(line(band, count, rate(band),
             `${count} single splices · ${src}`));
-          if (job.maintWindow) {
+          if (maintAdder) {
             lines.push(line('FUSION_MAINT_ADDER', count, rate('FUSION_MAINT_ADDER'),
               `Maintenance window adder — ${count} splices · ${src}`));
           }
@@ -129,7 +141,7 @@ export function computeInvoice(job: JobInput): InvoiceDraft {
           const band = ribbonBand(ribbons);
           lines.push(line(band, ribbons, rate(band),
             `${ribbons} ribbon splices · ${src}`));
-          if (job.maintWindow) {
+          if (maintAdder) {
             lines.push(line('RIBBON_MAINT_ADDER', ribbons, rate('RIBBON_MAINT_ADDER'),
               `Maintenance window adder — ${ribbons} ribbons · ${src}`));
           }
@@ -149,15 +161,33 @@ export function computeInvoice(job: JobInput): InvoiceDraft {
         lines.push(line(band, n, rate(band), `${n} fibers tested · ${src}`));
       }
 
-      downtimeHours += loc.downtimeHours ?? 0;
+      // (downtime is totted up per visit above, so it can multiply by the crew)
     }
   }
 
-  // downtime (one rolled-up line for the job)
-  if (downtimeHours > 0) {
+  // ---- the hours, rolled up for the job ----
+  if (isEmergency) {
+    // travel and downtime both bill under unit 223 SPLICER - FIBER, kept as two
+    // lines so the invoice shows WHY each hour is there. The rate-card export
+    // sums them back onto the one row.
+    if (travelHours > 0) {
+      const h = round2(travelHours);
+      lines.push(line('SPLICER_FIBER', h, rate('SPLICER_FIBER'),
+        `Travel — ${TRAVEL_HOURS_PER_TECH} hr per tech per trip × ${techTrips} tech-trip(s)`));
+    }
+    if (downtimeHours > 0) {
+      const h = round2(downtimeHours);
+      const raw = round2(job.visits.reduce(
+        (s, v) => s + v.locations.reduce((t, l) => t + (l.downtimeHours ?? 0), 0), 0));
+      lines.push(line('SPLICER_FIBER', h, rate('SPLICER_FIBER'),
+        `Downtime — ${raw} hr on site × the crew standing on it = ${h} tech-hour(s)`));
+    }
+  } else if (downtimeHours > 0) {
     const h = round2(downtimeHours);
+    const raw = round2(job.visits.reduce(
+      (s, v) => s + v.locations.reduce((t, l) => t + (l.downtimeHours ?? 0), 0), 0));
     lines.push(line('DOWNTIME_CAPITAL', h, DOWNTIME_RATE,
-      `Downtime ${h} hr × $${DOWNTIME_RATE}/hr`));
+      `Downtime — ${raw} hr on site × the crew standing on it = ${h} tech-hour(s) × $${DOWNTIME_RATE}/hr`));
   }
 
   return finalize(job, lines);

@@ -8,14 +8,14 @@ import type { JobInput, VisitInput, LocationInput, StructureType, CaseAction, Sp
 export async function loadJobInput(jobId: string): Promise<JobInput> {
   const { data: job, error: jErr } = await admin
     .from('jobs')
-    .select('id, bm_number, billing_mode, maint_window')
+    .select('id, bm_number, billing_mode, maint_window, scheduled_ahead')
     .eq('id', jobId)
     .single();
   if (jErr || !job) throw new Error(`Job not found: ${jobId}`);
 
   const { data: visits } = await admin
     .from('visits')
-    .select('id, visit_date, lead_hours')
+    .select('id, visit_date, lead_hours, techs')
     .eq('job_id', jobId)
     .order('visit_date', { ascending: true });
 
@@ -73,6 +73,8 @@ export async function loadJobInput(jobId: string): Promise<JobInput> {
       id: v.id,
       date: v.visit_date,
       leadHours: v.lead_hours != null ? Number(v.lead_hours) : undefined,
+      // drives LOR travel hours: 2 hr per tech per trip under unit 223
+      techs: Array.isArray((v as any).techs) ? ((v as any).techs as string[]) : [],
       locations: locInputs,
     });
   }
@@ -81,6 +83,7 @@ export async function loadJobInput(jobId: string): Promise<JobInput> {
     bmNumber: job.bm_number,
     billingMode: (job.billing_mode ?? 'capital') as 'capital' | 'emergency',
     maintWindow: job.maint_window === true,
+    scheduledAhead: job.scheduled_ahead === true,
     visits: visitInputs,
   };
 }

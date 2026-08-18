@@ -37,7 +37,12 @@ export interface LocationInput {
 export interface VisitInput {
   id: string;
   date: string;
-  leadHours?: number;               // lead-tech clocker hours (drives emergency hourly)
+  /** Lead-tech clocker hours. Recorded for the job history; does NOT bill —
+   *  the units cover on-site working time on capital AND emergency jobs. */
+  leadHours?: number;
+  /** Names/initials of the techs on this trip. On an LOR each one earns
+   *  2 travel hours (1 out, 1 back) under unit 223 SPLICER - FIBER. */
+  techs?: string[];
   locations: LocationInput[];
 }
 
@@ -48,6 +53,9 @@ export interface JobInput {
    *  to every splice line. Capital jobs only; emergency/LOR bills hourly and
    *  never reaches the adder, so a night LOR can't pick it up. */
   maintWindow?: boolean;
+  /** Emergency/LOR that was scheduled ahead rather than rolled out on.
+   *  Kills the unit 223 travel hours; downtime still bills under 223. */
+  scheduledAhead?: boolean;
   visits: VisitInput[];
 }
 

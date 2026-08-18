@@ -200,6 +200,7 @@ function JobsPanel() {
   const [title, setTitle] = useState('');
   const [mode, setMode] = useState('capital');
   const [maintWindow, setMaintWindow] = useState(false);
+  const [scheduledAhead, setScheduledAhead] = useState(false);
 
   // add-customer
   const [newCustName, setNewCustName] = useState('');
@@ -217,7 +218,10 @@ function JobsPanel() {
   }, [idType]);
 
   // the maint-window adder is capital-only — switching to emergency clears it
-  useEffect(() => { if (mode === 'emergency') setMaintWindow(false); }, [mode]);
+  useEffect(() => {
+    if (mode === 'emergency') setMaintWindow(false);
+    else setScheduledAhead(false);   // scheduled-ahead only means anything on an LOR
+  }, [mode]);
 
   async function addCustomer() {
     if (!newCustName.trim() || !newCustCode.trim()) return;
@@ -234,10 +238,11 @@ function JobsPanel() {
       bm_number: bm.trim(), customer_id: customerId, identifier: identifier.trim() || null,
       identifier_type: idType, title: title.trim() || null, billing_mode: mode, status: 'open',
       maint_window: mode === 'capital' ? maintWindow : false,
+      scheduled_ahead: mode === 'emergency' ? scheduledAhead : false,
     });
     if (error) { setErr(error.message); setBusy(false); return; }
     setMsg(`Job ${bm} created — it's now on the crew's roster.${maintWindow && mode === 'capital' ? ' Maintenance-window adder is on.' : ''}`);
-    setBm(''); setIdentifier(''); setTitle(''); setMaintWindow(false);
+    setBm(''); setIdentifier(''); setTitle(''); setMaintWindow(false); setScheduledAhead(false);
     setBusy(false);
   }
 
@@ -294,10 +299,23 @@ function JobsPanel() {
               </p>
             </>
           ) : (
-            <p className="muted small" style={{ marginTop: 12 }}>
-              Emergency/LOR bills hourly — the maintenance-window adder never applies,
-              even when the work happens at night.
-            </p>
+            <>
+              <label style={{ marginTop: 12 }}>How this LOR came in</label>
+              <div className="seg">
+                <button type="button" className={!scheduledAhead ? 'on' : ''} onClick={() => setScheduledAhead(false)}>Rolled out on the call</button>
+                <button type="button" className={scheduledAhead ? 'on' : ''} onClick={() => setScheduledAhead(true)}>Scheduled ahead</button>
+              </div>
+              <p className="muted small" style={{ marginTop: 4 }}>
+                <strong>Rolled out</strong> — we dropped what we were doing and drove out.
+                Bills 2 hr drive time per tech per trip under unit 223.{' '}
+                <strong>Scheduled ahead</strong> — their tech asked us to come out in a day
+                or two, so no drive time. Downtime on site still bills either way.
+              </p>
+              <p className="muted small">
+                An LOR bills every unit the crew earns, same as a capital job. The
+                maintenance-window adder never applies, even when the work is at night.
+              </p>
+            </>
           )}
           {err && <div className="error">{err}</div>}
           {msg && <div className="small" style={{ color: 'var(--ok)', marginTop: 8 }}>{msg}</div>}

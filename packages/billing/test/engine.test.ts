@@ -259,7 +259,7 @@ describe('maintenance window adder (scheduled night work)', () => {
   it('EMERGENCY/LOR never gets the adder, even flagged and worked at night', () => {
     const d = computeInvoice({
       bmNumber: '26-349', billingMode: 'emergency', maintWindow: true,
-      visits: [{ id: 'v1', date: '2026-05-22', leadHours: 6, locations: [
+      visits: [{ id: 'v1', date: '2026-05-22', techs: ['Armando'], locations: [
         loc({ id: 'a', closureCode: 'Lumen-0001', spliceType: 'single', spliceCount: 48 }),
       ] }],
     });
@@ -300,5 +300,125 @@ describe('testing cannot be billed when the job involved splicing', () => {
       ] }],
     });
     expect(lineFor(d, 'TEST_CD_PMD')).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Emergency/LOR bills every unit the crew earned, SAME as capital. Unit 223
+// SPLICER - FIBER covers travel (1 hr out + 1 hr back, per tech, per trip) and
+// any downtime. On-site working time does not bill hourly.
+describe('emergency / LOR billing', () => {
+  const lorJob = (over: Partial<JobInput> = {}, techs = ['Armando', 'Sal']): JobInput => ({
+    bmNumber: '26-349', billingMode: 'emergency',
+    visits: [{ id: 'v1', date: '2026-08-17', techs, leadHours: 9, locations: [
+      loc({ id: 'a', structureType: 'mh', closureCode: 'Lumen-0050', caseAction: 'reenter',
+            spliceType: 'single', spliceCount: 48, downtimeHours: 2 }),
+    ] }],
+    ...over,
+  });
+
+  it('bills the units, not just hours', () => {
+    const d = computeInvoice(lorJob());
+    expect(totalOf(d, 'SETUP_MH')).toBe(253);
+    expect(lineFor(d, 'REENTER')).toHaveLength(1);
+    expect(lineFor(d, 'FUSION_25_48')[0].quantity).toBe(48);
+  });
+
+  it('travel = 2 hr per tech per trip, downtime = hours x techs, all under unit 223', () => {
+    const d = computeInvoice(lorJob());
+    // 2 techs x 2 hr travel = 4 hr; 2 hr downtime x 2 techs = 4 hr; 8 hr x $125
+    expect(totalOf(d, 'SPLICER_FIBER')).toBe(1000);
+  });
+
+  it("downtime bills PER TECH standing on it — Austin's 26-349 numbers", () => {
+    // 5 techs, one night, 3 hr downtime, rolled out:
+    // drive 5 x 2 = 10 hr, downtime 3 x 5 = 15 hr, total 25 hr
+    const d = computeInvoice({
+      bmNumber: '26-349', billingMode: 'emergency',
+      visits: [{ id: 'v1', date: '2026-08-17',
+        techs: ['Armando', 'Sal', 'T3', 'T4', 'T5'], locations: [
+          loc({ id: 'a', closureCode: 'Lumen-0050', caseAction: 'reenter',
+                spliceType: 'single', spliceCount: 48, downtimeHours: 3 }),
+        ] }],
+    });
+    const hours = lineFor(d, 'SPLICER_FIBER').reduce((s, l) => s + l.quantity, 0);
+    expect(hours).toBe(25);
+    expect(totalOf(d, 'SPLICER_FIBER')).toBe(3125);
+  });
+
+  it('capital downtime is ALSO multiplied by the crew', () => {
+    // 2 hr with 3 techs = 6 billable hours = $750
+    const d = computeInvoice({
+      bmNumber: '26-500', billingMode: 'capital',
+      visits: [{ id: 'v1', date: '2026-08-18', techs: ['A', 'B', 'C'], locations: [
+        loc({ id: 'a', closureCode: 'Lumen-0050', spliceType: 'single', spliceCount: 12, downtimeHours: 2 }),
+      ] }],
+    });
+    expect(lineFor(d, 'DOWNTIME_CAPITAL')[0].quantity).toBe(6);
+    expect(totalOf(d, 'DOWNTIME_CAPITAL')).toBe(750);
+  });
+
+  it('downtime counts per visit, against that night\'s crew', () => {
+    const d = computeInvoice({
+      bmNumber: '26-501', billingMode: 'capital',
+      visits: [
+        { id: 'v1', date: '2026-08-17', techs: ['A', 'B', 'C'], locations: [loc({ id: 'a', downtimeHours: 2 })] },
+        { id: 'v2', date: '2026-08-18', techs: ['A'], locations: [loc({ id: 'b', downtimeHours: 1 })] },
+      ],
+    });
+    expect(lineFor(d, 'DOWNTIME_CAPITAL')[0].quantity).toBe(7);   // 2x3 + 1x1
+  });
+
+  it('three nights with two techs = 12 travel hours', () => {
+    const d = computeInvoice({
+      bmNumber: '26-349', billingMode: 'emergency',
+      visits: [1, 2, 3].map(i => ({
+        id: `v${i}`, date: `2026-08-1${i}`, techs: ['Armando', 'Sal'],
+        locations: [loc({ id: `a${i}`, closureCode: `Lumen-005${i}`, spliceType: 'single', spliceCount: 12 })],
+      })),
+    });
+    expect(lineFor(d, 'SPLICER_FIBER')[0].quantity).toBe(12);
+  });
+
+  it('on-site hours do NOT bill on top of the units', () => {
+    const withHours = computeInvoice(lorJob());
+    const noHours = computeInvoice(lorJob({
+      visits: [{ id: 'v1', date: '2026-08-17', techs: ['Armando', 'Sal'], locations: [
+        loc({ id: 'a', structureType: 'mh', closureCode: 'Lumen-0050', caseAction: 'reenter',
+              spliceType: 'single', spliceCount: 48, downtimeHours: 2 }),
+      ] }],
+    }));
+    expect(withHours.total).toBe(noHours.total);
+  });
+
+  it('a visit with no techs listed still bills one tech', () => {
+    const d = computeInvoice(lorJob({}, []));
+    // 1 tech x 2 hr travel + 2 hr downtime x 1 tech = 4 hr
+    expect(totalOf(d, 'SPLICER_FIBER')).toBe(500);
+  });
+
+  it('scheduled-ahead LOR drops the drive time but keeps downtime', () => {
+    const rolled = computeInvoice(lorJob());
+    const sched = computeInvoice(lorJob({ scheduledAhead: true }));
+    expect(totalOf(sched, 'SPLICER_FIBER')).toBe(500);   // downtime only: 2 hr x 2 techs
+    expect(rolled.total - sched.total).toBe(500);        // the 4 travel hours
+  });
+
+  it('scheduled-ahead LOR with no downtime has no unit 223 at all', () => {
+    const d = computeInvoice({
+      bmNumber: '26-360', billingMode: 'emergency', scheduledAhead: true,
+      visits: [{ id: 'v1', date: '2026-08-17', techs: ['Armando'], locations: [
+        loc({ id: 'a', closureCode: 'Lumen-0090', caseAction: 'reenter', spliceType: 'single', spliceCount: 12 }),
+      ] }],
+    });
+    expect(lineFor(d, 'SPLICER_FIBER')).toHaveLength(0);
+  });
+
+  it('unit 76 and unit 223 never mix', () => {
+    const lor = computeInvoice(lorJob());
+    expect(lineFor(lor, 'DOWNTIME_CAPITAL')).toHaveLength(0);
+    const cap = computeInvoice({ ...lorJob(), bmNumber: '26-500', billingMode: 'capital' });
+    expect(lineFor(cap, 'SPLICER_FIBER')).toHaveLength(0);
+    expect(totalOf(cap, 'DOWNTIME_CAPITAL')).toBe(500);   // 2 hr x 2 techs
   });
 });

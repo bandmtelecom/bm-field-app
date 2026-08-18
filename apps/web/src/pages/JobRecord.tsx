@@ -28,7 +28,7 @@ export default function JobRecord() {
 
   async function load() {
     const { data: j } = await supabase.from('jobs')
-      .select('id, bm_number, identifier, identifier_type, title, billing_mode, maint_window, status, customer:customers(name, code)')
+      .select('id, bm_number, identifier, identifier_type, title, billing_mode, maint_window, scheduled_ahead, status, customer:customers(name, code)')
       .eq('id', id).single();
     setJob(j as any);
     const { data: v } = await supabase.from('visits')
@@ -68,9 +68,14 @@ export default function JobRecord() {
           <div className="small muted">{job.identifier} · {job.title}</div>
           <div style={{ marginTop: 8 }}>
             {job.billing_mode === 'emergency'
-              ? <span className="badge emergency">LOR / Emergency — hourly</span>
+              ? <span className="badge emergency">LOR / Emergency</span>
               : <span className="pill">Capital — per unit</span>}
             {job.maint_window && <span className="pill" style={{ marginLeft: 6 }}>🌙 Maintenance window</span>}
+            {job.billing_mode === 'emergency' && (
+              <span className="pill" style={{ marginLeft: 6 }}>
+                {job.scheduled_ahead ? 'Scheduled ahead — no drive time' : 'Rolled out — drive time billable'}
+              </span>
+            )}
           </div>
         </div>
 

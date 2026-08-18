@@ -63,6 +63,66 @@ _Read this first on a new session. Updated 2026-08-13 — deployed live._
   directly in Supabase Auth default to role `tech` — fix in Admin → Users → role
   dropdown → admin.
 
+## v0.2.5 — downtime bills PER TECH on capital too (2026-08-18)
+
+Neither v0.2.3 nor v0.2.4 was pushed — **v0.2.5 is the one to deploy.**
+
+**Downtime is per tech on BOTH job types** (Austin, 8/18): 2 hr of downtime with
+3 techs = 6 billable hours = $750, capital or LOR. Counted per visit against that
+visit's tech list, so a job worked by different crews on different nights adds up
+correctly (2 hr × 3 techs on night 1 + 1 hr × 1 tech on night 2 = 7 hr, not 9).
+
+- capital → unit 76 DOWNTIME - CAPITAL PROJECT ($125/hr). On the rate card that's
+  an ACTUAL row, so cell K gets the DOLLARS: 6 hr → **750**.
+- LOR → unit 223 SPLICER - FIBER, alongside the travel hours.
+
+## v0.2.4 — LOR downtime bills PER TECH (2026-08-18) · folded into v0.2.5
+
+Correction on top of v0.2.3 (v0.2.3 was never pushed — use v0.2.4).
+
+**Downtime on an LOR bills for every tech standing on it.** 3 hr of downtime with
+5 techs on site = **15 billable hours**, not 3. Counted per visit against that
+visit's "Techs on job" list, so a 3-night job with different crews each night
+comes out right.
+
+Austin's own numbers for 26-349, checked against the engine: 5 techs, one night,
+3 hr downtime, rolled out → drive 5 × 2 = **10 hr**, downtime 3 × 5 = **15 hr**,
+**25 hr** on unit 223 = $3,125. With one MH setup, a re-enter and 48 single
+splices the job totals **$5,607.98**.
+
+~~Capital downtime is NOT multiplied by the crew~~ — **superseded in v0.2.5:
+Austin confirmed capital multiplies by the crew too.**
+
+## v0.2.3 — LOR billing corrected (2026-08-18) · folded into v0.2.4
+
+**⚠ RUN THE SQL FIRST:** `supabase/migrations/20260818000005_lor_scheduled.sql`
+adds `jobs.scheduled_ahead`. Same rule as last time — column before code.
+
+**This corrects a real billing error.** v0.2.2 billed an emergency/LOR as hourly
+only, which would have dropped every unit the crew earned. Austin's rule:
+
+- An LOR bills **100% of the units**, exactly like a capital job — setups,
+  re-enters, splices, trays, cases, extras, all of it.
+- Unit **223 SPLICER - FIBER** ($125/hr, HOUR — real rate, so hours go in as
+  hours) covers two things and only these two:
+  1. **Travel** — 1 hr out + 1 hr back, **per tech, per trip**. Tech count comes
+     from the "Techs on job" box on each visit; a visit with nobody listed still
+     bills one tech, since a visit can't happen with no one there.
+  2. **Downtime × the crew** — every tech on site during downtime bills for it.
+     On an LOR downtime bills under 223, NOT under unit 76.
+- **On-site working time does NOT bill hourly.** The units cover it. The visit
+  form's hours box is relabelled "Hours on site" and is record-only.
+- **Scheduled-ahead LORs earn no drive time.** If the customer's tech asks us to
+  come out in a day or two rather than rolling out on the call, no travel hours.
+  Downtime still bills under 223. Set on the job at creation: Admin → Create job
+  → "Rolled out on the call" / "Scheduled ahead".
+- Unit 76 is capital-only, unit 223 is LOR-only. They never appear together.
+- Maintenance-window adder still never applies to an LOR.
+
+Worked example — 2 techs, one night, one MH, re-enter, 48 single splices, 2 hr
+downtime: rolled-out LOR **$3,232.98**; the same work as capital **$2,732.98**;
+the same LOR scheduled ahead **$2,732.98**.
+
 ## v0.2.2 — field-form tweaks, maintenance-window adder, rate-card export (2026-08-18)
 
 **⚠ RUN THE SQL FIRST, THEN PUSH.** `supabase/migrations/20260818000004_maint_window.sql`

@@ -118,10 +118,15 @@ export default function AddVisit() {
           <div className="row">
             <div><label>Date</label><input type="date" value={visitDate} onChange={(e) => setVisitDate(e.target.value)} /></div>
             {job?.billing_mode === 'emergency' &&
-              <div><label>Lead hours (billed)</label><input inputMode="decimal" value={leadHours} onChange={(e) => setLeadHours(e.target.value)} /></div>}
+              <div><label>Hours on site</label><input inputMode="decimal" value={leadHours} onChange={(e) => setLeadHours(e.target.value)} /></div>}
           </div>
           <label>Techs on job (comma-separated)</label>
           <input placeholder="Armando, Sal" value={techs} onChange={(e) => setTechs(e.target.value)} />
+          {job?.billing_mode === 'emergency' && (
+            <p className="muted small" style={{ marginTop: 4 }}>
+              List every tech who made the trip — on an LOR each one earns drive time.
+            </p>
+          )}
           <label>Job summary / narrative</label>
           <textarea value={narrative} onChange={(e) => setNarrative(e.target.value)} placeholder="What happened, delays, what's left…" />
           <label>Status</label>
