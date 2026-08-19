@@ -73,6 +73,7 @@ insert into rate_card (code, unit_no, section, assembly, uom, rate, billable) va
   ('TEST_OTDR_GT_432', 233, 'SPL', 'TEST FIBER - PWR-MTR OTDR > 432', 'EACH', 14.0, true),
   ('TRAY_450B_24', 165, 'MAT', 'FIB TRAY 24 FOSC 450 B', '', 8.66, true),
   ('TRAY_600D_24_RBN', 167, 'MAT', 'FIB TRAY 24 RBN FOSC 600 D', '', 37.616875, true),
+  ('TRAY_72_600D', 173, 'MAT', 'FIB TRAY 72 FOSC 600 D', '', 26.402175, true),
   ('TRAY_600D_48', 171, 'MAT', 'FIB TRAY 48 FOSC 600 D', '', 21.3469, true)
 on conflict (code) do update set
   unit_no=excluded.unit_no, section=excluded.section, assembly=excluded.assembly,

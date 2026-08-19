@@ -200,15 +200,19 @@ function labelHole(loc: LocationInput): string {
   return loc.closureCode ? `${s[loc.structureType]} (${loc.closureCode})` : s[loc.structureType];
 }
 
+// Every tray B&M installs bills as unit 173 FIB TRAY 72 FOSC 600 D ($26.402175).
+// The app used to guess the tray from the enclosure model, which put trays on
+// unit 171 (FIB TRAY 48, $21.35) and other wrong rows. Austin's rule, 8/18: it's
+// always 173. `loc.trayMaterialCode` is deliberately ignored — the column stays
+// in the database as a record of what the tech saw, but it does not price.
+const TRAY_MATERIAL = 'TRAY_72_600D';
+
 function pushMaterials(lines: InvoiceLine[], loc: LocationInput, date: string) {
   const src = `${loc.closureCode ?? 'closure'} · ${date}`;
   if ((loc.traysAdded ?? 0) > 0) {
     const n = loc.traysAdded as number;
     lines.push(line('ADD_TRAY', n, rate('ADD_TRAY'), `${n} trays added · ${src}`));
-    if (loc.trayMaterialCode) {
-      lines.push(line(loc.trayMaterialCode, n, rate(loc.trayMaterialCode),
-        `Tray material ×${n} · ${src}`));
-    }
+    lines.push(line(TRAY_MATERIAL, n, rate(TRAY_MATERIAL), `Tray material ×${n} · ${src}`));
   }
 }
 

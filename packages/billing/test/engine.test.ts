@@ -422,3 +422,18 @@ describe('emergency / LOR billing', () => {
     expect(totalOf(cap, 'DOWNTIME_CAPITAL')).toBe(500);   // 2 hr x 2 techs
   });
 });
+
+// ---------------------------------------------------------------------------
+describe('trays', () => {
+  it('every tray bills unit 1 labor + unit 173 material, whatever the enclosure', () => {
+    const d = computeInvoice(capitalJob([
+      loc({ id: 'a', closureCode: 'Lumen-0001', traysAdded: 2,
+            enclosureModel: '450B', trayMaterialCode: 'TRAY_450B_24' } as any),
+    ]));
+    expect(totalOf(d, 'ADD_TRAY')).toBe(41.5);          // 2 x $20.75
+    expect(totalOf(d, 'TRAY_72_600D')).toBe(52.8);      // 2 x $26.402175
+    // the old guessed material rows must not appear
+    expect(lineFor(d, 'TRAY_450B_24')).toHaveLength(0);
+    expect(lineFor(d, 'TRAY_600D_48')).toHaveLength(0);
+  });
+});

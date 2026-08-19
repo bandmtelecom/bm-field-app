@@ -63,6 +63,40 @@ _Read this first on a new session. Updated 2026-08-13 — deployed live._
   directly in Supabase Auth default to role `tech` — fix in Admin → Users → role
   dropdown → admin.
 
+## v0.2.6 — trays on unit 173, and an Excel export that doesn't get repaired (2026-08-18)
+
+**No SQL needed.** Code push only.
+
+### Trays always bill unit 173
+Every tray now bills **unit 1 ADD FIBER TRAY OR BASKET ($20.75 labor) + unit 173
+FIB TRAY 72 FOSC 600 D ($26.402175 material)**, regardless of enclosure model.
+The app used to guess the tray material from the enclosure and put trays on unit
+171 (FIB TRAY 48, $21.35) and other wrong rows — that's what the 8/18 download
+showed (14 trays on 171 = $298.86). `locations.tray_material_code` still records
+what the tech saw but no longer prices. Unit 173 added to `ratecard.ts` and the
+seed. Austin's rule, 8/18.
+
+### The Excel export no longer damages the workbook
+Excel was warning "some parts are unreadable", repairing the file on open and
+stripping the formatting — because exceljs **re-serialises the entire workbook**
+when it saves, and it does not reproduce this file faithfully.
+
+Replaced with surgical XML patching (`apps/api/src/lib/xlsxPatch.ts`, jszip):
+open the customer's own .xlsx, rewrite ONLY the worksheet part, pass every other
+part through byte-for-byte. Measured: **20 of 22 zip parts byte-identical** to the
+supplied file — styles, theme, drawings, the logo image, print settings, external
+links, shared strings all untouched. The two that change are the worksheet and
+workbook.xml (the latter only to set `fullCalcOnLoad`).
+
+- All 754 formulas stay live; we only refresh the cached answer Excel renders.
+- **No stamp, no cosmetic edits.** The job number rides in the filename only —
+  earlier versions wrote a job header into rows 1–2, which is the logo area.
+- Unmappable unit codes come back in an `X-BM-Unmapped-Units` response header
+  instead of being written into the sheet.
+- `exceljs` removed, `jszip` added.
+
+**Do not go back to a library that rebuilds the workbook.**
+
 ## v0.2.5 — downtime bills PER TECH on capital too (2026-08-18)
 
 Neither v0.2.3 nor v0.2.4 was pushed — **v0.2.5 is the one to deploy.**

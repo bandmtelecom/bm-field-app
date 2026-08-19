@@ -73,6 +73,7 @@ export const RATE_CARD: Record<string, RateUnit> = {
   TEST_OTDR_GT_432: { code: "TEST_OTDR_GT_432", unitNo: 233, section: "SPL", assembly: "TEST FIBER - PWR-MTR OTDR > 432", uom: "EACH", rate: 14.0 },
   TRAY_450B_24: { code: "TRAY_450B_24", unitNo: 165, section: "MAT", assembly: "FIB TRAY 24 FOSC 450 B", uom: "", rate: 8.66 },
   TRAY_600D_24_RBN: { code: "TRAY_600D_24_RBN", unitNo: 167, section: "MAT", assembly: "FIB TRAY 24 RBN FOSC 600 D", uom: "", rate: 37.616875 },
+  TRAY_72_600D: { code: "TRAY_72_600D", unitNo: 173, section: "MAT", assembly: "FIB TRAY 72 FOSC 600 D", uom: "", rate: 26.402175 },
   TRAY_600D_48: { code: "TRAY_600D_48", unitNo: 171, section: "MAT", assembly: "FIB TRAY 48 FOSC 600 D", uom: "", rate: 21.3469 },
 };
 
