@@ -4,7 +4,9 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { RATE_CARD, type RateUnit } from '@bm/billing';
 import { admin, getCaller } from '../supabase.js';
-import { patchQuantities } from '../lib/xlsxPatch.js';
+import {
+  patchQuantities, forceFullRecalc, stripCalcChainRel, stripCalcChainContentType,
+} from '../lib/xlsxPatch.js';
 
 export const rateCard = Router();
 
@@ -128,13 +130,22 @@ rateCard.get('/jobs/:id/invoice.xlsx', async (req, res) => {
 
     zip.file(sheetPath, sheetXml);
 
-    // NOTE: do NOT set calcPr fullCalcOnLoad on workbook.xml. It was added as
-    // belt-and-braces on the cached values, and it made Excel render a line
-    // through every cell in the three formula columns (I, J, L). Proven by
-    // A/B test on 8/19: the customer's untouched file is clean, this same patch
-    // WITHOUT the flag is clean, and the only difference was that flag. The
-    // cached values written above are sufficient — the flag bought nothing.
-    // workbook.xml is now left byte-identical to the customer's original.
+    // Force a genuine full recalculation so Excel never flags our injected
+    // values as STALE (its stale-value formatting draws what looks exactly like
+    // a strikethrough through every formula cell). Needs all three of these
+    // together — fullCalcOnLoad on its own makes it worse. Verified against the
+    // customer's Excel 8/19.
+    const CALC_CHAIN = 'xl/calcChain.xml';
+    zip.remove(CALC_CHAIN);
+    const relsPath = 'xl/_rels/workbook.xml.rels';
+    const rels = await zip.file(relsPath)?.async('string');
+    if (rels) zip.file(relsPath, stripCalcChainRel(rels));
+    const ctPath = '[Content_Types].xml';
+    const ct = await zip.file(ctPath)?.async('string');
+    if (ct) zip.file(ctPath, stripCalcChainContentType(ct));
+    const wbPath = 'xl/workbook.xml';
+    const wb = await zip.file(wbPath)?.async('string');
+    if (wb) zip.file(wbPath, forceFullRecalc(wb));
 
     const out = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 

@@ -108,10 +108,41 @@ export function patchQuantities(
   return { xml: sheetXml, total: round2(total), filled, missingUnitNos };
 }
 
-// DELIBERATELY NOT PROVIDED: a helper that sets calcPr fullCalcOnLoad="1".
-// Forcing Excel to recalculate on open made it draw a line through every cell
-// in the three formula columns (I, J, L) of the customer's rate card. Verified
-// 8/19 by A/B test — their untouched file is clean, this patch without the flag
-// is clean, the flag alone caused it. The cached values written by
-// patchQuantities() are what Excel renders, so the flag was never needed.
-// Leave workbook.xml alone.
+/**
+ * Make the workbook recalculate cleanly, so Excel never marks our values STALE.
+ *
+ * Excel has a feature called "stale value formatting": in Partial calculation
+ * mode it draws a line through any formula result it has not itself computed.
+ * Because we inject quantities into cells that formulas depend on, every
+ * formula in the Tax / Total Per Unit / Extended columns gets flagged that way
+ * — which reads exactly like strikethrough and looks alarming on an invoice.
+ *
+ * Setting fullCalcOnLoad ALONE makes it worse, because Excel still trusts its
+ * existing calculation chain. The combination that works, verified against the
+ * customer's Excel on 8/19:
+ *   1. drop xl/calcChain.xml entirely (Excel rebuilds it from scratch)
+ *   2. calcId="0" — "written by something that cannot calculate"
+ *   3. fullCalcOnLoad="1"
+ * Together those force a genuine full recalculation, so nothing is ever stale.
+ *
+ * The caller must also remove the calcChain part and its two references —
+ * see stripCalcChainRefs() below.
+ */
+export function forceFullRecalc(workbookXml: string): string {
+  const tag = '<calcPr calcId="0" fullCalcOnLoad="1"/>';
+  return /<calcPr[^>]*\/>/.test(workbookXml)
+    ? workbookXml.replace(/<calcPr[^>]*\/>/, tag)
+    : /<calcPr[^>]*>[\s\S]*?<\/calcPr>/.test(workbookXml)
+      ? workbookXml.replace(/<calcPr[^>]*>[\s\S]*?<\/calcPr>/, tag)
+      : workbookXml.replace('</workbook>', tag + '</workbook>');
+}
+
+/** Remove the calcChain relationship from xl/_rels/workbook.xml.rels. */
+export function stripCalcChainRel(relsXml: string): string {
+  return relsXml.replace(/<Relationship[^>]*calcChain\.xml"[^>]*\/>/g, '');
+}
+
+/** Remove the calcChain override from [Content_Types].xml. */
+export function stripCalcChainContentType(contentTypesXml: string): string {
+  return contentTypesXml.replace(/<Override[^>]*calcChain\.xml"[^>]*\/>/g, '');
+}

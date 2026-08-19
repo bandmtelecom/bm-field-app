@@ -63,6 +63,47 @@ _Read this first on a new session. Updated 2026-08-13 — deployed live._
   directly in Supabase Auth default to role `tech` — fix in Admin → Users → role
   dropdown → admin.
 
+## v0.2.8 — kill Excel's stale-value strikethrough on the rate card (2026-08-19)
+
+**No SQL. Code push only.**
+
+### What the "strikethrough" actually was
+Excel's **stale value formatting**. In *Partial* calculation mode Excel draws a
+line through any formula result it has not itself computed. Because the export
+injects quantities into cells that formulas depend on, every cell in the three
+formula columns — I (Tax), J (Total Per Unit), L (Extended) — got flagged. Plain
+value columns E-H and K were never touched, which is exactly the pattern Austin
+saw. It appeared on open, and came back whenever he sorted, because sorting
+triggers a recalculation.
+
+It is NOT a font strikethrough: Format Cells → Font shows Strikethrough
+unchecked, `styles.xml` has no strike font, and the only conditional formatting
+applies thin borders. LibreOffice renders it clean, so it could never be
+reproduced from the cloud session — Austin found the Microsoft doc that named it.
+
+### The fix (all three together, or it doesn't work)
+1. **Drop `xl/calcChain.xml`** entirely — Excel rebuilds it from scratch. Also
+   strip its `[Content_Types].xml` override and its `workbook.xml.rels`
+   relationship, or the file is malformed.
+2. **`calcId="0"`** — tells Excel the file was written by something that cannot
+   calculate.
+3. **`fullCalcOnLoad="1"`**.
+
+**`fullCalcOnLoad` on its own makes it WORSE** — that was v0.2.6, and removing it
+in v0.2.7 fixed the open-time case but not sorting. Excel still trusted its
+existing calculation chain. Only dropping the chain forces a genuine full recalc.
+
+Verified against Austin's Excel: TEST-A (his untouched file) clean, TEST-B (patch,
+no flag) clean on open but not after sorting, **TEST-C (chain dropped + calcId 0 +
+fullCalcOnLoad) clean including after sorting**. Shipped as TEST-C.
+
+### Also worth knowing
+Austin's Excel is in **Partial** calculation mode, which is what enables stale
+formatting at all. Formulas → Calculation Options → **Automatic** would also
+solve it, per-machine. The file-side fix is better because it doesn't depend on
+anyone's settings. The numbers were never wrong — stale formatting is Excel being
+cautious about values it didn't compute, not a miscalculation.
+
 ## v0.2.7 — drop fullCalcOnLoad from the rate-card export (2026-08-19)
 
 **No SQL. Code push only. One-line fix, found by A/B test.**
