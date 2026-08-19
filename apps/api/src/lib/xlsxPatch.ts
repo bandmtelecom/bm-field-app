@@ -108,9 +108,10 @@ export function patchQuantities(
   return { xml: sheetXml, total: round2(total), filled, missingUnitNos };
 }
 
-/** Ask Excel to recompute everything on open — belt and braces on cached values. */
-export function forceRecalcOnLoad(workbookXml: string): string {
-  return /<calcPr[^>]*>/.test(workbookXml)
-    ? workbookXml.replace(/<calcPr([^>]*?)\/>/, (_s, a) => `<calcPr${a} fullCalcOnLoad="1"/>`)
-    : workbookXml.replace('</workbook>', '<calcPr fullCalcOnLoad="1"/></workbook>');
-}
+// DELIBERATELY NOT PROVIDED: a helper that sets calcPr fullCalcOnLoad="1".
+// Forcing Excel to recalculate on open made it draw a line through every cell
+// in the three formula columns (I, J, L) of the customer's rate card. Verified
+// 8/19 by A/B test — their untouched file is clean, this patch without the flag
+// is clean, the flag alone caused it. The cached values written by
+// patchQuantities() are what Excel renders, so the flag was never needed.
+// Leave workbook.xml alone.

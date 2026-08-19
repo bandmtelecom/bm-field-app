@@ -63,6 +63,36 @@ _Read this first on a new session. Updated 2026-08-13 — deployed live._
   directly in Supabase Auth default to role `tech` — fix in Admin → Users → role
   dropdown → admin.
 
+## v0.2.7 — drop fullCalcOnLoad from the rate-card export (2026-08-19)
+
+**No SQL. Code push only. One-line fix, found by A/B test.**
+
+v0.2.6 set `calcPr fullCalcOnLoad="1"` on `workbook.xml` as belt-and-braces on the
+cached values. In Excel that made **every cell in the three formula columns (I Tax,
+J Total Per Unit, L Extended) render with a line through it** on all 251 rows —
+while the plain-value columns E-H stayed clean.
+
+It is NOT a font strikethrough (Format Cells → Font shows Strikethrough
+unchecked), there is no strike font in `styles.xml`, and the only conditional
+formatting rules apply thin borders. LibreOffice renders it clean, so it is
+Excel-specific and could not be reproduced from the cloud session.
+
+Isolated by sending Austin two files:
+- **TEST-A** — his rate card byte-for-byte untouched → clean
+- **TEST-B** — the same cell patch, workbook.xml left alone → clean
+
+Same 13 cell edits in both the broken and clean versions, so the per-cell patch
+was never the problem. The flag was the only workbook-level change, and it was
+the cause. Removed.
+
+The cached values written by `patchQuantities()` are what Excel displays, so the
+flag bought nothing. **`workbook.xml` is now read but never written** — the export
+leaves 21 of 22 zip parts byte-identical to the customer's file.
+
+Also confirmed 8/19: the "fresh untouched" rate card Austin re-uploaded is
+**byte-for-byte identical** to the one already committed, so his highlighting was
+never in the file and the template was never a variable.
+
 ## v0.2.6 — trays on unit 173, and an Excel export that doesn't get repaired (2026-08-18)
 
 **No SQL needed.** Code push only.

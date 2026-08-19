@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { RATE_CARD, type RateUnit } from '@bm/billing';
 import { admin, getCaller } from '../supabase.js';
-import { patchQuantities, forceRecalcOnLoad } from '../lib/xlsxPatch.js';
+import { patchQuantities } from '../lib/xlsxPatch.js';
 
 export const rateCard = Router();
 
@@ -128,9 +128,13 @@ rateCard.get('/jobs/:id/invoice.xlsx', async (req, res) => {
 
     zip.file(sheetPath, sheetXml);
 
-    // ask Excel to recompute on open as a belt-and-braces on the cached values
-    const wbPath = 'xl/workbook.xml';
-    zip.file(wbPath, forceRecalcOnLoad(await zip.file(wbPath)!.async('string')));
+    // NOTE: do NOT set calcPr fullCalcOnLoad on workbook.xml. It was added as
+    // belt-and-braces on the cached values, and it made Excel render a line
+    // through every cell in the three formula columns (I, J, L). Proven by
+    // A/B test on 8/19: the customer's untouched file is clean, this same patch
+    // WITHOUT the flag is clean, and the only difference was that flag. The
+    // cached values written above are sufficient — the flag bought nothing.
+    // workbook.xml is now left byte-identical to the customer's original.
 
     const out = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
 
