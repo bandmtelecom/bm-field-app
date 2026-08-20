@@ -57,7 +57,7 @@ export default function ClosureDetail() {
           {hasGps && <div className="muted small" style={{ marginTop: 4 }}>{closure.gps_lat}, {closure.gps_lng}</div>}
 
           {knownCables.length > 0 && (
-            <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,.08)' }}>
+            <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--line)' }}>
               <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em' }}>
                 Cables on record
               </div>

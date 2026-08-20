@@ -46,7 +46,7 @@ function Field({ label, value }: { label: string; value: any }) {
 
 function Section({ title, children }: { title: string; children: any }) {
   return (
-    <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,.08)' }}>
+    <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--line)' }}>
       <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: 4 }}>{title}</div>
       {children}
     </div>
@@ -99,13 +99,13 @@ export default function LocationDetail({ loc }: { loc: any }) {
         </div>
         <div className="row" style={{ gap: 6 }}>
           {hasGps && (
-            <a className="iconbtn" style={{ textDecoration: 'none' }}
+            <a className="cardbtn ghost"
               href={`https://www.google.com/maps/search/?api=1&query=${loc.gps_lat},${loc.gps_lng}`}
               target="_blank" rel="noreferrer">📍 Map</a>
           )}
-          {/* the crew fixes their own reports — forgotten cable, missing GPS */}
-          <Link className="iconbtn" style={{ textDecoration: 'none' }}
-            to={`/locations/${loc.id}/edit`}>✎ Edit</Link>
+          {/* the crew fixes their own reports — forgotten cable, missing GPS.
+              Solid fill: this has to be findable by a tech in daylight. */}
+          <Link className="cardbtn" to={`/locations/${loc.id}/edit`}>✎ Edit</Link>
         </div>
       </div>
 

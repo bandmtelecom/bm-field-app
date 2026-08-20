@@ -35,6 +35,20 @@ body {
 }
 .back { background: none; border: 0; color: #fff; font-size: 15px; cursor: pointer; padding: 0; }
 
+/* Action buttons that sit ON A WHITE CARD.
+   .iconbtn above is translucent white for the navy topbar — on a card it is
+   white-on-white and effectively invisible. Use these instead. */
+.cardbtn {
+  background: var(--navy); color: #fff; border: 0; border-radius: 8px;
+  padding: 8px 12px; font-size: 13px; font-weight: 600; cursor: pointer;
+  text-decoration: none; display: inline-block; white-space: nowrap;
+  line-height: 1.2;
+}
+.cardbtn:active { background: var(--navy-2); }
+.cardbtn.ghost {
+  background: #eef2f5; color: var(--navy); border: 1px solid var(--line);
+}
+
 /* content */
 .content { padding: 16px; flex: 1; }
 .card {

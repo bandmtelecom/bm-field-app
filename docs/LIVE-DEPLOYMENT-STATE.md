@@ -63,6 +63,54 @@ _Read this first on a new session. Updated 2026-08-13 — deployed live._
   directly in Supabase Auth default to role `tech` — fix in Admin → Users → role
   dropdown → admin.
 
+## v0.3.3 — expandable search range on the closure registry (2026-08-20)
+
+**No SQL. Code push only.**
+
+Austin, 8/20: "A bunch of times we are given a splice closure from Lumen and
+it's the wrong one. If we could expand the range over time we would be able to
+locate cables that we need to find when building rings or hunting down an LOR."
+
+**Two radii, deliberately separate — do not merge them:**
+- `CANDIDATE_RADIUS_FT = 150` — the PICKER. Answers "which closure am I standing
+  on." Must stay tight or it suggests closures from across the street.
+- `BROWSE_RADII_FT` — the BROWSE screen. A hunting tool. 500 ft / 1,000 ft /
+  2,000 ft / 3,000 ft / 1 mile / 2 miles.
+
+- Range chips on the Closures screen, defaulting to 1,000 ft (the old hardcoded
+  value).
+- **Widening does not re-prompt for GPS** — the fix is held, so stepping out
+  through the ranges is instant instead of waiting on the phone each time.
+- A **🔎 Widen to <next>** button under the results, so the natural move when
+  nothing turns up is one tap rather than hunting for the right chip.
+- Results now show **distance AND compass bearing** — "1,340 ft NE", "0.4 mi SW"
+  — because when you're hunting a cable, which way to walk matters as much as
+  how far.
+- Results capped at 60 nearest; a 2-mile sweep downtown could otherwise return
+  an unusable list.
+
+## v0.3.2 — make the on-card buttons and borders visible (2026-08-20)
+
+**No SQL. Code push only.**
+
+`.iconbtn` is styled for the navy topbar: `background: rgba(255,255,255,.14)`
+with white text. Correct there, invisible the moment it is used on a white card
+— which is where the new **Map** and **✎ Edit** buttons went. Austin: "it's very
+hard to see... we need to make it more visible."
+
+Same mistake in three more places, all white-on-white on a white card:
+- `LocationDetail` section dividers — `borderTop: rgba(255,255,255,.08)`
+- `ClosurePicker` unselected option outlines — `1px solid rgba(255,255,255,.15)`
+  (this one matters most: the closure options looked like floating text)
+- `ClosureDetail` section dividers
+
+Added a **`.cardbtn`** class for actions that sit on a card: solid navy fill,
+white text, `.ghost` variant for secondary. Edit is solid (a tech has to find it
+in daylight), Map is ghost. All the phantom borders now use `var(--line)`.
+
+**Rule going forward:** `.iconbtn` and `rgba(255,255,255,...)` belong on the navy
+topbar only. Anything on a card uses `.cardbtn` and `var(--line)`.
+
 ## v0.3.1 — the crew can fix a location after the fact (2026-08-20)
 
 **⚠ RUN THE SQL FIRST:** `supabase/migrations/20260820000006_tech_edit_children.sql`.

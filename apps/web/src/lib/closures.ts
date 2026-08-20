@@ -18,6 +18,45 @@ import { supabase } from './supabase';
  *  whenever phone GPS drifts. */
 export const CANDIDATE_RADIUS_FT = 150;
 
+/**
+ * How far the BROWSE screen looks. Different job entirely from the picker
+ * radius above: that one asks "which closure am I standing on", this one is a
+ * hunting tool. Austin, 8/20: Lumen hands the crew the wrong splice closure
+ * often enough that being able to widen the net — to find the cable you need
+ * when you're building a ring or chasing an LOR — is worth real money.
+ */
+export const BROWSE_RADII_FT = [
+  { ft: 500,   label: '500 ft' },
+  { ft: 1000,  label: '1,000 ft' },
+  { ft: 2000,  label: '2,000 ft' },
+  { ft: 3000,  label: '3,000 ft' },
+  { ft: 5280,  label: '1 mile' },
+  { ft: 10560, label: '2 miles' },
+] as const;
+
+/** Compass bearing from point 1 to point 2, as a 16-point label. */
+export function bearingLabel(
+  lat1: number, lng1: number, lat2: number, lng2: number,
+): string {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLng = toRad(lng2 - lng1);
+  const y = Math.sin(dLng) * Math.cos(toRad(lat2));
+  const x =
+    Math.cos(toRad(lat1)) * Math.sin(toRad(lat2)) -
+    Math.sin(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.cos(dLng);
+  const deg = (Math.atan2(y, x) * 180) / Math.PI;
+  const points = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  return points[Math.round(((deg + 360) % 360) / 22.5) % 16];
+}
+
+/** "1,340 ft NE" / "0.4 mi SW" — how a splicer would say where to go. */
+export function distanceLabel(ft: number, bearing?: string): string {
+  const d = ft >= 1000
+    ? `${(ft / 5280).toFixed(ft >= 5280 ? 1 : 2)} mi`
+    : `${Math.round(ft)} ft`;
+  return bearing ? `${d} ${bearing}` : d;
+}
+
 export interface ClosureRow {
   id: string;
   closure_code: string;
@@ -41,6 +80,8 @@ export interface CableRow {
 
 export interface ClosureCandidate extends ClosureRow {
   distanceFt: number | null;
+  /** compass direction from where the tech is standing — for hunting */
+  bearing: string | null;
   cables: CableRow[];
   lastWorked: string | null;
   visitCount: number;
@@ -93,6 +134,7 @@ async function decorate(rows: ClosureRow[]): Promise<ClosureCandidate[]> {
     return {
       ...r,
       distanceFt: null,
+      bearing: null,
       cables: (withCables?.cables ?? []) as CableRow[],
       lastWorked: dates[0] ?? null,
       visitCount: list.length,
@@ -109,6 +151,7 @@ export async function closuresNear(
   lat: number,
   lng: number,
   radiusFt = CANDIDATE_RADIUS_FT,
+  limit = 60,
 ): Promise<ClosureCandidate[]> {
   // cheap bounding box first so the database doesn't hand back the whole state
   const degLat = radiusFt / 364000;                                  // ~ft per degree lat
@@ -125,10 +168,15 @@ export async function closuresNear(
   const near = ((data as any[]) ?? [])
     .map((c) => ({ ...c, d: distanceFt(lat, lng, Number(c.gps_lat), Number(c.gps_lng)) }))
     .filter((c) => c.d <= radiusFt)
-    .sort((a, b) => a.d - b.d);
+    .sort((a, b) => a.d - b.d)
+    .slice(0, limit);   // a 2-mile sweep downtown could otherwise be endless
 
   const decorated = await decorate(near);
-  return decorated.map((c, i) => ({ ...c, distanceFt: Math.round(near[i].d) }));
+  return decorated.map((c, i) => ({
+    ...c,
+    distanceFt: Math.round(near[i].d),
+    bearing: bearingLabel(lat, lng, Number(near[i].gps_lat), Number(near[i].gps_lng)),
+  }));
 }
 
 /** Look a closure up by code — the office path when back-entering paper reports. */

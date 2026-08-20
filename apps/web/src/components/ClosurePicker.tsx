@@ -61,7 +61,7 @@ export default function ClosurePicker({
           display: 'block', width: '100%', textAlign: 'left', marginTop: 8,
           padding: '10px 12px', cursor: 'pointer', font: 'inherit', color: 'inherit',
           borderRadius: 10,
-          border: on ? '2px solid var(--ok)' : '1px solid rgba(255,255,255,.15)',
+          border: on ? '2px solid var(--ok)' : '1px solid var(--line)',
           background: on ? 'rgba(46,160,67,.12)' : 'transparent',
         }}
       >
@@ -145,7 +145,7 @@ export default function ClosurePicker({
           display: 'block', width: '100%', textAlign: 'left', marginTop: 8,
           padding: '10px 12px', cursor: 'pointer', font: 'inherit', color: 'inherit',
           borderRadius: 10,
-          border: !selectedId ? '2px solid var(--ok)' : '1px solid rgba(255,255,255,.15)',
+          border: !selectedId ? '2px solid var(--ok)' : '1px solid var(--line)',
           background: !selectedId ? 'rgba(46,160,67,.12)' : 'transparent',
         }}
       >
