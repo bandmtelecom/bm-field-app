@@ -63,6 +63,31 @@ _Read this first on a new session. Updated 2026-08-13 — deployed live._
   directly in Supabase Auth default to role `tech` — fix in Admin → Users → role
   dropdown → admin.
 
+## v0.3.1 — the crew can fix a location after the fact (2026-08-20)
+
+**⚠ RUN THE SQL FIRST:** `supabase/migrations/20260820000006_tech_edit_children.sql`.
+
+Asked for by the field: "there needs to be an option to open up a location after
+it's already been completed if the guys need to add something or change
+something they forgot."
+
+- **✎ Edit** button on the read-only location detail panel → `/locations/:id/edit`.
+- Reuses the same `LocationBlock` the original entry used — one form to learn,
+  one place for bugs to hide. Prefilled from the database, including cables,
+  shots, panel ports, downtime and tap-to-add units.
+- Saving replaces the detail rows wholesale rather than diffing row by row.
+- The closure picker is on this form too, so **reopening a location is how you
+  add GPS and attach a closure to work that was entered without them** — which
+  is exactly how the first real closure is going to get created, and how the 16
+  existing GPS-less locations can be backfilled by someone who was there.
+- Visit-level fields (date, techs, job summary) are NOT editable here.
+
+**Why the SQL:** replacing detail rows means deleting them, and DELETE on
+`cables`/`shots`/`panel_ports`/`downtime`/`location_units` was office/admin only.
+Migration 0006 loosens it to any active user for those five CHILD tables only.
+Deleting jobs, visits, locations, closures and customers stays office/admin, so
+nobody can wipe a job from the field.
+
 ## v0.3.0 — the closure registry actually works (2026-08-19)
 
 **No SQL. Code push only.**

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { STRUCTURE_LABELS } from '../lib/types';
 import { DOWNTIME_REASONS, EXTRA_UNITS, CASE_MATERIALS } from '../lib/options';
@@ -96,11 +97,16 @@ export default function LocationDetail({ loc }: { loc: any }) {
             {loc.pm_location_no ? ` · Location #${loc.pm_location_no}` : ''}
           </div>
         </div>
-        {hasGps && (
-          <a className="iconbtn" style={{ textDecoration: 'none' }}
-            href={`https://www.google.com/maps/search/?api=1&query=${loc.gps_lat},${loc.gps_lng}`}
-            target="_blank" rel="noreferrer">📍 Map</a>
-        )}
+        <div className="row" style={{ gap: 6 }}>
+          {hasGps && (
+            <a className="iconbtn" style={{ textDecoration: 'none' }}
+              href={`https://www.google.com/maps/search/?api=1&query=${loc.gps_lat},${loc.gps_lng}`}
+              target="_blank" rel="noreferrer">📍 Map</a>
+          )}
+          {/* the crew fixes their own reports — forgotten cable, missing GPS */}
+          <Link className="iconbtn" style={{ textDecoration: 'none' }}
+            to={`/locations/${loc.id}/edit`}>✎ Edit</Link>
+        </div>
       </div>
 
       <Field label="Building address" value={loc.building_address} />
