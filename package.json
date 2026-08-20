@@ -1,6 +1,6 @@
 {
   "name": "bm-field-app",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "private": true,
   "description": "B&M Telecom field reporting + auto-invoicing PWA (Supabase + Render)",
   "workspaces": [

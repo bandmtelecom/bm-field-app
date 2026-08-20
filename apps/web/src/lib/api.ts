@@ -30,6 +30,23 @@ export function kmlUrl() {
   return `${BASE}/closures.kml`;
 }
 
+/** The customer-facing field report (.pdf). No prices on it. */
+export async function downloadFieldReport(jobId: string, bmNumber: string) {
+  const res = await fetch(`${BASE}/jobs/${jobId}/report.pdf`, { headers: await authHeader() });
+  if (!res.ok) {
+    throw new Error((await res.json().catch(() => ({})))?.error ?? 'Could not build the report');
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${bmNumber || 'job'}-field-report.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
 /**
  * Download the draft laid onto the customer's full rate card (.xlsx).
  * Goes through fetch rather than a plain link because the endpoint is

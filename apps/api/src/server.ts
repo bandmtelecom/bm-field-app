@@ -4,6 +4,7 @@ import { invoices } from './routes/invoices.js';
 import { kml } from './routes/kml.js';
 import { adminRouter } from './routes/admin.js';
 import { rateCard } from './routes/rateCard.js';
+import { report } from './routes/report.js';
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -16,6 +17,7 @@ app.get('/health', (_req, res) => res.json({ ok: true, service: 'bm-field-api' }
 
 app.use(invoices);
 app.use(rateCard);   // must sit near invoices: /jobs/:id/invoice.xlsx
+app.use(report);     // /jobs/:id/report.pdf — the customer's record of work
 app.use(kml);
 app.use(adminRouter);
 

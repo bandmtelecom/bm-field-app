@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
-import { markJobComplete } from '../lib/api';
+import { markJobComplete, downloadFieldReport } from '../lib/api';
 import { STRUCTURE_LABELS } from '../lib/types';
 import LocationDetail from '../components/LocationDetail';
 
@@ -25,6 +25,8 @@ export default function JobRecord() {
   const [openLoc, setOpenLoc] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [dl, setDl] = useState(false);
+  const [dlErr, setDlErr] = useState<string | null>(null);
 
   async function load() {
     const { data: j } = await supabase.from('jobs')
@@ -51,6 +53,13 @@ export default function JobRecord() {
       await load();
     } catch (e: any) { setMsg(e.message); }
     setBusy(false);
+  }
+
+  async function getReport() {
+    setDl(true); setDlErr(null);
+    try { await downloadFieldReport(id!, job?.bm_number ?? ''); }
+    catch (e: any) { setDlErr(e.message); }
+    setDl(false);
   }
 
   if (!job) return <div className="spinner">Loading…</div>;
@@ -139,6 +148,17 @@ export default function JobRecord() {
         )}
         {isOffice && (
           <>
+            <div style={{ height: 10 }} />
+            {/* the customer's record of work — no prices, safe to send out */}
+            <button className="btn ghost" disabled={dl} onClick={getReport}>
+              {dl ? 'Building…' : '📄 Download field report (PDF)'}
+            </button>
+            <p className="muted small" style={{ marginTop: 4 }}>
+              Everything the crew did on this job — closures, splices, cables and
+              footages, as-found and as-built. No prices; this is the copy for the
+              customer.
+            </p>
+            {dlErr && <div className="error">{dlErr}</div>}
             <div style={{ height: 10 }} />
             <Link className="btn ghost" to={`/jobs/${id}/invoice`}>View draft invoice</Link>
           </>

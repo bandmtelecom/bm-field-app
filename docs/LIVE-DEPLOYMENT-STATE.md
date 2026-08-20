@@ -63,6 +63,36 @@ _Read this first on a new session. Updated 2026-08-13 — deployed live._
   directly in Supabase Auth default to role `tech` — fix in Admin → Users → role
   dropdown → admin.
 
+## v0.3.4 — customer-facing field report (PDF) (2026-08-20)
+
+**No SQL. Code push only.**
+
+The documentation half of the product. The rate card is what B&M bills; this is
+the record of work that goes to the customer alongside it.
+
+- Office/admin → open a job → **📄 Download field report (PDF)**.
+  Route `GET /jobs/:id/report.pdf`. Built with **pdfkit** (new API dependency).
+- **Works on an open job** — it reads the running record, not the invoice draft,
+  so a job does NOT have to be marked complete to produce the report.
+- **NO PRICES ANYWHERE.** Not a rate, not a total. That is the whole point.
+- One PDF per job, whole running record, visits in date order (Austin's choice).
+- Per visit: date, techs, status, summary.
+- Per location: closure code, structure + owner, address, **GPS**, enclosure,
+  case action, splice type + count, trays, fibers tested, as-found, as-built,
+  notes — then tables for cables (with footages and a total), panel ports, OTDR
+  shots, downtime, and additional work.
+- Tap-to-add units print in plain English via `apps/api/src/lib/unitLabels.ts`,
+  which mirrors `EXTRA_UNITS` in the web app. The customer must never see a code
+  like `DEWATERING`.
+- B&M logo on every page from `apps/api/assets/logo.png`, with a text fallback
+  if the file is missing or unreadable. **The supplied logo is only 105×82 px** —
+  fine on screen, slightly soft in print. Swap in a larger one when available;
+  no code change needed.
+- Footer on every page: company, job number, generated date, page number.
+
+Layout lives in `apps/api/src/lib/fieldReport.ts`, separate from the route, so
+the data fetch and the design can be changed independently.
+
 ## v0.3.3 — expandable search range on the closure registry (2026-08-20)
 
 **No SQL. Code push only.**
