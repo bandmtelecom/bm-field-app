@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
-import { kmlUrl } from '../lib/api';
 import type { Job } from '../lib/types';
 
 export default function Jobs() {
@@ -38,7 +37,7 @@ export default function Jobs() {
         {profile?.role === 'admin' && (
           <button className="iconbtn" onClick={() => nav('/admin')}>Admin</button>
         )}
-        <a className="iconbtn" href={kmlUrl()} target="_blank" rel="noreferrer">Map (KML)</a>
+        <button className="iconbtn" onClick={() => nav('/closures')}>Closures</button>
         <button className="iconbtn" onClick={() => signOut()}>Sign out</button>
       </div>
       <div className="content">

@@ -47,8 +47,11 @@ export default function AddVisit() {
       // 2) each location (+ closure registry row when GPS present)
       let ord = 0;
       for (const L of locations) {
-        let closureId: string | null = null;
-        if (L.gps_lat && L.gps_lng) {
+        // The tech either picked an existing closure (matched by cable) or asked
+        // for a new one. Only mint a new code when nothing was picked — this is
+        // what stops the registry filling up with duplicates of the same hole.
+        let closureId: string | null = L.closure_id;
+        if (!closureId && L.gps_lat && L.gps_lng) {
           const { data: cc } = await supabase.rpc('next_closure_code', { p_customer: job.customer_id });
           const code = Array.isArray(cc) ? cc[0]?.code : (cc as any)?.code;
           const seq = Array.isArray(cc) ? cc[0]?.seq : (cc as any)?.seq;
@@ -136,7 +139,8 @@ export default function AddVisit() {
         </div>
 
         {locations.map((L, i) => (
-          <LocationBlock key={i} value={L} index={i} onChange={(v) => setLoc(i, v)}
+          <LocationBlock key={i} value={L} index={i} customerId={job?.customer_id ?? null}
+            onChange={(v) => setLoc(i, v)}
             onRemove={() => setLocations((p) => p.filter((_, x) => x !== i))} />
         ))}
         <button className="addline" onClick={() => setLocations((p) => [...p, emptyLocation()])}>＋ Add another location</button>

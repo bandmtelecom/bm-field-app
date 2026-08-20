@@ -1,0 +1,214 @@
+import { supabase } from './supabase';
+
+/**
+ * The closure registry — B&M's permanent list of the closures it has worked.
+ *
+ * A closure gets ONE code per customer, forever (`Lumen-0042`), with the GPS of
+ * the structure it lives in. Return visits attach to the same code, so the
+ * closure accumulates a work history the crew can pull up in the field.
+ *
+ * IMPORTANT (Austin's rule): GPS alone can NEVER identify a closure, because a
+ * single hole can hold more than one. Proximity only narrows the candidates —
+ * the tech identifies it by matching the CABLES against what's in front of him.
+ * So everything here surfaces candidates plus their cables; nothing auto-picks.
+ */
+
+/** How far out we look for candidates. Generous on purpose: the tech confirms
+ *  by cable, so a wide net costs nothing and a narrow one misses real matches
+ *  whenever phone GPS drifts. */
+export const CANDIDATE_RADIUS_FT = 150;
+
+export interface ClosureRow {
+  id: string;
+  closure_code: string;
+  structure_type: string | null;
+  structure_owner: string | null;
+  building_address: string | null;
+  enclosure_model: string | null;
+  gps_lat: number | null;
+  gps_lng: number | null;
+  created_at?: string;
+}
+
+export interface CableRow {
+  direction: string | null;
+  count: string | null;
+  manufacturer: string | null;
+  date_code: string | null;
+  footage: number | null;
+  role: string | null;
+}
+
+export interface ClosureCandidate extends ClosureRow {
+  distanceFt: number | null;
+  cables: CableRow[];
+  lastWorked: string | null;
+  visitCount: number;
+}
+
+const FT_PER_M = 3.28084;
+
+/** Great-circle distance in feet. */
+export function distanceFt(
+  lat1: number, lng1: number, lat2: number, lng2: number,
+): number {
+  const R = 6371000; // metres
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(a)) * FT_PER_M;
+}
+
+/** Attach cables + how often it's been worked to a set of closures. */
+async function decorate(rows: ClosureRow[]): Promise<ClosureCandidate[]> {
+  if (!rows.length) return [];
+  const ids = rows.map((r) => r.id);
+
+  // every location ever logged against these closures, newest first
+  const { data: locs } = await supabase
+    .from('locations')
+    .select('id, closure_id, created_at, cables(direction, count, manufacturer, date_code, footage, role), visits(visit_date)')
+    .in('closure_id', ids)
+    .order('created_at', { ascending: false });
+
+  const byClosure = new Map<string, any[]>();
+  for (const l of (locs as any[]) ?? []) {
+    const list = byClosure.get(l.closure_id) ?? [];
+    list.push(l);
+    byClosure.set(l.closure_id, list);
+  }
+
+  return rows.map((r) => {
+    const list = byClosure.get(r.id) ?? [];
+    // cables from the most recent visit that actually recorded any
+    const withCables = list.find((l) => (l.cables ?? []).length > 0);
+    const dates = list
+      .map((l) => l.visits?.visit_date)
+      .filter(Boolean)
+      .sort()
+      .reverse();
+    return {
+      ...r,
+      distanceFt: null,
+      cables: (withCables?.cables ?? []) as CableRow[],
+      lastWorked: dates[0] ?? null,
+      visitCount: list.length,
+    };
+  });
+}
+
+/**
+ * Closures near a point, for one customer — the candidate list a tech picks
+ * from. Sorted nearest first. Never decides; the tech matches by cable.
+ */
+export async function closuresNear(
+  customerId: string,
+  lat: number,
+  lng: number,
+  radiusFt = CANDIDATE_RADIUS_FT,
+): Promise<ClosureCandidate[]> {
+  // cheap bounding box first so the database doesn't hand back the whole state
+  const degLat = radiusFt / 364000;                                  // ~ft per degree lat
+  const degLng = radiusFt / (364000 * Math.max(Math.cos((lat * Math.PI) / 180), 0.01));
+
+  const { data } = await supabase
+    .from('closures')
+    .select('id, closure_code, structure_type, structure_owner, building_address, enclosure_model, gps_lat, gps_lng, created_at')
+    .eq('customer_id', customerId)
+    .not('gps_lat', 'is', null)
+    .gte('gps_lat', lat - degLat).lte('gps_lat', lat + degLat)
+    .gte('gps_lng', lng - degLng).lte('gps_lng', lng + degLng);
+
+  const near = ((data as any[]) ?? [])
+    .map((c) => ({ ...c, d: distanceFt(lat, lng, Number(c.gps_lat), Number(c.gps_lng)) }))
+    .filter((c) => c.d <= radiusFt)
+    .sort((a, b) => a.d - b.d);
+
+  const decorated = await decorate(near);
+  return decorated.map((c, i) => ({ ...c, distanceFt: Math.round(near[i].d) }));
+}
+
+/** Look a closure up by code — the office path when back-entering paper reports. */
+export async function searchClosures(q: string, customerId?: string): Promise<ClosureCandidate[]> {
+  const term = q.trim();
+  if (!term) return [];
+  let query = supabase
+    .from('closures')
+    .select('id, closure_code, structure_type, structure_owner, building_address, enclosure_model, gps_lat, gps_lng, created_at')
+    .ilike('closure_code', `%${term}%`)
+    .order('closure_code')
+    .limit(25);
+  if (customerId) query = query.eq('customer_id', customerId);
+  const { data } = await query;
+  return decorate(((data as any[]) ?? []) as ClosureRow[]);
+}
+
+export interface ClosureVisit {
+  locationId: string;
+  visitDate: string | null;
+  techs: string[];
+  bmNumber: string | null;
+  billingMode: string | null;
+  customerName: string | null;
+  caseAction: string | null;
+  spliceType: string | null;
+  spliceCount: number;
+  traysAdded: number;
+  testFiberCount: number;
+  asFound: string | null;
+  asBuilt: string | null;
+  narrative: string | null;
+  cables: CableRow[];
+}
+
+/** Everything B&M has ever done at one closure, newest first. */
+export async function closureHistory(closureId: string): Promise<ClosureVisit[]> {
+  const { data } = await supabase
+    .from('locations')
+    .select(`
+      id, case_action, splice_type, splice_count, trays_added, test_fiber_count,
+      as_found, as_built, narrative,
+      cables(direction, count, manufacturer, date_code, footage, role),
+      visits(visit_date, techs, jobs(bm_number, billing_mode, customers(name)))
+    `)
+    .eq('closure_id', closureId);
+
+  const rows = ((data as any[]) ?? []).map((l) => ({
+    locationId: l.id,
+    visitDate: l.visits?.visit_date ?? null,
+    techs: (l.visits?.techs ?? []) as string[],
+    bmNumber: l.visits?.jobs?.bm_number ?? null,
+    billingMode: l.visits?.jobs?.billing_mode ?? null,
+    customerName: l.visits?.jobs?.customers?.name ?? null,
+    caseAction: l.case_action,
+    spliceType: l.splice_type,
+    spliceCount: l.splice_count ?? 0,
+    traysAdded: l.trays_added ?? 0,
+    testFiberCount: l.test_fiber_count ?? 0,
+    asFound: l.as_found,
+    asBuilt: l.as_built,
+    narrative: l.narrative,
+    cables: (l.cables ?? []) as CableRow[],
+  }));
+
+  return rows.sort((a, b) => (b.visitDate ?? '').localeCompare(a.visitDate ?? ''));
+}
+
+export async function getClosure(id: string): Promise<ClosureRow | null> {
+  const { data } = await supabase
+    .from('closures')
+    .select('id, closure_code, structure_type, structure_owner, building_address, enclosure_model, gps_lat, gps_lng, created_at')
+    .eq('id', id).single();
+  return (data as any) ?? null;
+}
+
+/** One-line summary of a cable, the way a splicer would say it. */
+export function cableLabel(c: CableRow): string {
+  const bits = [c.direction, c.count, c.manufacturer, c.date_code].filter(Boolean);
+  const main = bits.join(' · ') || 'cable';
+  const tail = [c.footage ? `${c.footage} ft` : null, c.role].filter(Boolean).join(' · ');
+  return tail ? `${main} — ${tail}` : main;
+}

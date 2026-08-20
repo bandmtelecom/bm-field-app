@@ -63,6 +63,52 @@ _Read this first on a new session. Updated 2026-08-13 — deployed live._
   directly in Supabase Auth default to role `tech` — fix in Admin → Users → role
   dropdown → admin.
 
+## v0.3.0 — the closure registry actually works (2026-08-19)
+
+**No SQL. Code push only.**
+
+### The problem it fixes
+A diagnostic on 8/19 found the `closures` table **completely empty**: 0 closures,
+0 with GPS, 16 locations all with `closure_id` null. The Google Earth export had
+no pins because there was nothing to plot. Two causes:
+1. A closure was only ever created `if (L.gps_lat && L.gps_lng)`, and GPS had
+   never once been captured — the 16 existing locations were back-entered from
+   the office off paper reports, where there is no GPS to grab.
+2. Even when captured, every visit minted a BRAND NEW code, so a return trip to
+   the same hole could never accumulate history.
+
+### Austin's identity rule — the thing that shapes the design
+> "If it's close we need to look at the cables that my techs put in and see if
+> they match. If they do it's the same closure. If they are different it's a new
+> closure. **We have holes with more than 1 closure in it.**"
+
+Proximity can therefore NEVER decide identity — two closures in one hole share
+coordinates. GPS only narrows candidates; the tech confirms by cable.
+
+### What shipped
+- **`lib/closures.ts`** — registry queries: `closuresNear()` (bounding-box
+  prefilter + haversine, 150 ft default), `searchClosures()` by code,
+  `closureHistory()`, and `cableLabel()`. Each candidate carries its cables on
+  record, last worked date and visit count.
+- **`ClosurePicker`** on every location block. Once GPS lands it lists nearby
+  known closures **with their cables**, so the tech matches what's in the hole
+  and taps the right one — or taps "＋ New closure" explicitly. Also a
+  search-by-code path for office back-entry with no GPS. Nothing auto-picks.
+- **`AddVisit`** now attaches to the picked closure and only mints a new code
+  when the tech asked for one. This is what stops duplicates.
+- **`/closures`** — "Closures near me" (the field path; the tech knows where he
+  is, not the number) plus search by code, and the Google Earth KML link.
+- **`/closures/:id`** — the whole point: everything B&M has ever done at that
+  closure, newest first. Cables on record, then per visit: date, techs, job
+  number, case action, splice counts, trays, fibers tested, as-found, as-built,
+  narrative, and the cables recorded that visit. No prices — techs can use it.
+- Jobs header now links to **Closures** (the raw KML link moved inside it).
+
+### Still open
+The 16 existing locations have no closure attached and no GPS, so they can't be
+backfilled automatically — someone has to say where they were. A backfill tool
+is worth building once real closures start landing.
+
 ## v0.2.8 — kill Excel's stale-value strikethrough on the rate card (2026-08-19)
 
 **No SQL. Code push only.**

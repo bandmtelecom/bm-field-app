@@ -4,6 +4,7 @@ import {
   CASE_MATERIALS, EXTRA_UNITS, inferTrayMaterial,
 } from '../lib/options';
 import { STRUCTURE_LABELS } from '../lib/types';
+import ClosurePicker from './ClosurePicker';
 
 export interface LocationForm {
   pm_location_no: string;
@@ -29,6 +30,9 @@ export interface LocationForm {
   extras: string[];
   /** counts for extras that bill per-each (e.g. TEST_CD_PMD). code → qty as typed. */
   extra_qty: Record<string, string>;
+  /** an EXISTING closure this work attaches to. null = mint a new one. */
+  closure_id: string | null;
+  closure_code: string | null;
 }
 
 export function emptyLocation(): LocationForm {
@@ -39,12 +43,16 @@ export function emptyLocation(): LocationForm {
     trays_added: '', test_fiber_count: '', test_type: 'otdr',
     narrative: '', as_found: '', as_built: '',
     downtimes: [], cables: [], panel_ports: [], shots: [], extras: [], extra_qty: {},
+    closure_id: null, closure_code: null,
   };
 }
 
 export default function LocationBlock({
-  value, index, onChange, onRemove,
-}: { value: LocationForm; index: number; onChange: (v: LocationForm) => void; onRemove: () => void }) {
+  value, index, customerId, onChange, onRemove,
+}: {
+  value: LocationForm; index: number; customerId?: string | null;
+  onChange: (v: LocationForm) => void; onRemove: () => void;
+}) {
   const set = (patch: Partial<LocationForm>) => onChange({ ...value, ...patch });
   const isBuilding = value.structure_type === 'building';
 
@@ -114,6 +122,15 @@ export default function LocationBlock({
         <input placeholder="lng" value={value.gps_lng} onChange={(e) => set({ gps_lng: e.target.value })} />
         <button type="button" className="iconbtn" style={{ background: 'var(--navy)' }} onClick={grabGps}>Grab</button>
       </div>
+
+      <ClosurePicker
+        customerId={customerId ?? null}
+        lat={value.gps_lat}
+        lng={value.gps_lng}
+        selectedId={value.closure_id}
+        selectedCode={value.closure_code}
+        onSelect={(id, code) => set({ closure_id: id, closure_code: code })}
+      />
 
       <label>Enclosure</label>
       <div className="seg">
