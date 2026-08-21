@@ -63,6 +63,50 @@ _Read this first on a new session. Updated 2026-08-13 — deployed live._
   directly in Supabase Auth default to role `tech` — fix in Admin → Users → role
   dropdown → admin.
 
+## v0.3.5 — field report cleanup + full data backup (2026-08-21)
+
+**No SQL. Code push only.**
+
+### Field report fixes — from the real 26-349 output
+The first version dropped work silently. **Page 2 was blank and visits 3 and 4
+never rendered**, while the header still said "Visits 4 · Locations 4".
+
+Cause: the layout wrote text at explicit coordinates without checking it fit.
+pdfkit spilled a block onto a fresh page while the code kept tracking the OLD
+page's y, so everything after was drawn below the paper edge and disappeared.
+
+**Rule now written into `fieldReport.ts`: measure with `heightOfString`, break
+the page if it doesn't fit, THEN draw.** Never position at an explicit y
+without checking first.
+
+Also fixed, all visible in the 26-349 test:
+- **Column headers ran together** — "FootageRole", "HoursReason". Column widths
+  are now weights scaled to the page, and every cell draws inside its width
+  minus a gutter, so a right-aligned number can't touch the next heading.
+- **Downtime showed the raw code** `waiting_construction`. The customer should
+  never see a database code; now "Waiting on construction".
+- **Tech names duplicated by case** — "Kelby, jesus, Armando, tyler, Spencer,
+  Jesus, Tyler". Folded case-insensitively, keeping the tidiest spelling.
+- **The identifier printed twice** in the subtitle, because `identifier` and
+  `title` held the same text. Suppressed when they match; still shown when the
+  title says something different.
+- Page numbers were missing on later pages.
+
+### Lumen's number, made unmissable
+Austin: "we also need all of the Lumen identifiers on the report, the job number
+for Lumen needs to be very visible." The customer's reference now appears in
+**bold navy in the header of every page**, in a **banded callout on page 1**, and
+in the detail fields. B&M's own number is secondary — it means nothing to them.
+
+### Full data backup
+`GET /export/backup.zip`, **admin only** — every row of all 16 tables as CSVs in
+one zip, plus a README with row counts and restore notes. Runs on the service
+role so it genuinely captures everything, including the priced rows RLS hides.
+Reachable from **Admin → Download full backup**.
+
+Everything B&M has lives in Supabase and nowhere else; this is the copy for the
+office network. Plain CSV, readable in Excel with or without this app.
+
 ## v0.3.4 — customer-facing field report (PDF) (2026-08-20)
 
 **No SQL. Code push only.**

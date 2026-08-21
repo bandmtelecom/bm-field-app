@@ -3,7 +3,7 @@ import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
-import { listUsers, createUser, updateUser, AdminUser } from '../lib/api';
+import { listUsers, createUser, updateUser, downloadBackup, AdminUser } from '../lib/api';
 
 type Tab = 'users' | 'jobs';
 
@@ -33,6 +33,7 @@ export default function Admin() {
           <button className={tab === 'jobs' ? 'on' : ''} onClick={() => setTab('jobs')}>Create job</button>
         </div>
         {tab === 'users' ? <UsersPanel selfId={profile.id} /> : <JobsPanel />}
+        <BackupPanel />
       </div>
     </div>
   );
@@ -334,5 +335,46 @@ function JobsPanel() {
         <button className="btn ghost" onClick={addCustomer}>Add customer</button>
       </div>
     </>
+  );
+}
+
+// ---- Backup ----------------------------------------------------------------
+/**
+ * Everything B&M has lives in Supabase and nowhere else. This is the copy that
+ * goes on the office network.
+ */
+function BackupPanel() {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [done, setDone] = useState(false);
+
+  async function run() {
+    setBusy(true); setErr(null); setDone(false);
+    try { await downloadBackup(); setDone(true); }
+    catch (e: any) { setErr(e.message); }
+    setBusy(false);
+  }
+
+  return (
+    <div className="card">
+      <h2>Backup</h2>
+      <p className="muted small">
+        Every job, visit, location, cable, closure and invoice — one CSV per table,
+        in a zip. Readable in Excel forever, with or without this app.
+      </p>
+      <button className="btn ghost" disabled={busy} onClick={run}>
+        {busy ? 'Building…' : '⬇ Download full backup'}
+      </button>
+      {done && (
+        <p className="small" style={{ color: 'var(--ok)', marginTop: 8 }}>
+          Downloaded. Save it to the backup folder on the office network.
+        </p>
+      )}
+      {err && <div className="error">{err}</div>}
+      <p className="muted small" style={{ marginTop: 8 }}>
+        Do this twice a week. The database is the one thing that only exists in
+        one place.
+      </p>
+    </div>
   );
 }

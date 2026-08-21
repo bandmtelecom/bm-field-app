@@ -68,6 +68,23 @@ export async function downloadRateCardXlsx(jobId: string, bmNumber: string) {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
+/** Admin: the whole database as CSVs in a zip, for the office network. */
+export async function downloadBackup() {
+  const res = await fetch(`${BASE}/export/backup.zip`, { headers: await authHeader() });
+  if (!res.ok) {
+    throw new Error((await res.json().catch(() => ({})))?.error ?? 'Backup failed');
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `bm-field-backup-${new Date().toISOString().slice(0, 10)}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
 // ---- admin: user management ------------------------------------------------
 export interface AdminUser {
   id: string; email: string; full_name: string;

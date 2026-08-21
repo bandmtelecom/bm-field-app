@@ -3,10 +3,15 @@
  *
  * This is the documentation half of the product: the rate card is what B&M
  * bills, this is the record of work that goes to the customer. It carries NO
- * prices — not a rate, not a total, nothing. Everything here is what the crew
- * physically did and found.
+ * prices — not a rate, not a total, nothing.
  *
- * Layout only. The caller fetches the data and hands over a pdfkit document.
+ * PAGINATION RULE — the thing that broke the first version: never write text at
+ * an explicit y without first checking it fits. pdfkit will happily spill a
+ * block onto a fresh page while this code keeps tracking the old page's
+ * coordinates, and everything after it gets drawn below the paper edge and
+ * silently disappears. That is how visits 3 and 4 of job 26-349 vanished and
+ * page 2 came out blank. So: measure with heightOfString, break if it doesn't
+ * fit, THEN draw.
  */
 
 export interface ReportCable {
@@ -72,6 +77,7 @@ const NAVY = '#0b3d5c';
 const MUTED = '#6b7a88';
 const LINE = '#dfe4e8';
 const TEXT = '#1a2733';
+const BAND = '#eef2f5';
 
 const STRUCTURE: Record<string, string> = {
   mh: 'Manhole', hh: 'Handhole', aerial: 'Aerial', building: 'Building',
@@ -89,12 +95,25 @@ const STATUS: Record<string, string> = {
   troubleshooting: 'Troubleshooting / ongoing',
 };
 const ID_TYPE: Record<string, string> = {
-  n_number: 'N-number', tt: 'Trouble ticket', lor: 'LOR', address: 'Address', other: 'Reference',
+  n_number: 'N-number', tt: 'Trouble ticket', lor: 'LOR',
+  address: 'Address', other: 'Reference',
+};
+/** downtime reasons arrive as codes; the customer should never see a code */
+const DOWNTIME_REASON: Record<string, string> = {
+  troubleshooting: 'Troubleshooting / DT',
+  waiting_construction: 'Waiting on construction',
+  waiting_customer: 'Waiting on customer / engineer',
+  access: 'Access / gate delay',
+  locate: 'Locate / permit',
+  traffic: 'Traffic control',
+  equipment: 'Equipment',
+  weather: 'Weather',
+  other: 'Other',
 };
 
-const M = { left: 50, right: 50, top: 54, bottom: 56 };
+const M = { left: 50, right: 50, top: 50, bottom: 58 };
+const GUTTER = 10;   // keeps a right-aligned column off its neighbour
 
-/** Date as the customer reads it, from an ISO yyyy-mm-dd. */
 function niceDate(iso: string | null): string {
   if (!iso) return '—';
   const [y, m, d] = iso.split('-').map(Number);
@@ -104,44 +123,73 @@ function niceDate(iso: string | null): string {
   return `${months[m - 1]} ${d}, ${y}`;
 }
 
+/**
+ * Crew names come in free-typed per visit — "jesus" and "Jesus", "tyler" and
+ * "Tyler" are the same man. Fold case for uniqueness, keep the tidiest spelling.
+ */
+function tidyNames(names: string[]): string[] {
+  const best = new Map<string, string>();
+  for (const raw of names) {
+    const n = raw.trim();
+    if (!n) continue;
+    const key = n.toLowerCase();
+    const existing = best.get(key);
+    // prefer the version that starts with a capital
+    if (!existing || (/^[a-z]/.test(existing) && /^[A-Z]/.test(n))) best.set(key, n);
+  }
+  return [...best.values()].map((n) => n.charAt(0).toUpperCase() + n.slice(1));
+}
+
 export function buildFieldReport(
   doc: any,
   job: ReportJob,
   opts: { logo?: Buffer | null; generatedOn: string } = { generatedOn: '' },
 ) {
   const W = doc.page.width - M.left - M.right;
+  const IND = M.left + 10;               // indent for everything under a heading
+  const IW = W - 10;                     // indented width
+  const maxY = () => doc.page.height - M.bottom;
   let pageNo = 0;
 
-  const room = (needed: number) => {
-    if (doc.y + needed > doc.page.height - M.bottom) newPage();
-  };
+  // The customer's own reference — the number THEY know the job by. Austin:
+  // "we need all of the Lumen identifiers on the report, the job number for
+  // Lumen needs to be very visible." It rides the header on every page.
+  const custRef = (job.identifier ?? '').trim();
+  const refLabel = ID_TYPE[job.identifierType ?? 'other'] ?? 'Reference';
 
   function header() {
     pageNo++;
-    let y = M.top;
+    const y = M.top;
     if (opts.logo) {
-      try {
-        doc.image(opts.logo, M.left, y - 8, { fit: [56, 44] });
-      } catch { /* a bad logo file must never break the report */ }
+      try { doc.image(opts.logo, M.left, y, { fit: [58, 40] }); }
+      catch { /* a bad logo file must never break the report */ }
     } else {
-      doc.font('Helvetica-Bold').fontSize(15).fillColor(NAVY)
-        .text('B&M Telecom, Inc.', M.left, y);
+      doc.font('Helvetica-Bold').fontSize(14).fillColor(NAVY)
+        .text('B&M Telecom, Inc.', M.left, y + 8, { lineBreak: false });
     }
-    doc.font('Helvetica').fontSize(9).fillColor(MUTED)
-      .text('FIELD REPORT', M.left, y, { width: W, align: 'right' })
-      .text(`B&M ${job.bmNumber}`, M.left, y + 12, { width: W, align: 'right' });
-    y += 38;
-    doc.moveTo(M.left, y).lineTo(doc.page.width - M.right, y)
+
+    doc.font('Helvetica').fontSize(8).fillColor(MUTED)
+      .text('FIELD REPORT', M.left, y, { width: W, align: 'right', lineBreak: false });
+    if (custRef) {
+      doc.font('Helvetica-Bold').fontSize(12).fillColor(NAVY)
+        .text(custRef, M.left + 120, y + 11, { width: W - 120, align: 'right', lineBreak: false });
+    }
+    doc.font('Helvetica').fontSize(8.5).fillColor(MUTED)
+      .text(`B&M job ${job.bmNumber}`, M.left, y + (custRef ? 28 : 14),
+        { width: W, align: 'right', lineBreak: false });
+
+    const rule = y + 46;
+    doc.moveTo(M.left, rule).lineTo(doc.page.width - M.right, rule)
       .lineWidth(1).strokeColor(NAVY).stroke();
-    doc.y = y + 14;
+    doc.y = rule + 14;
     doc.fillColor(TEXT);
   }
 
   function footer() {
-    const y = doc.page.height - M.bottom + 18;
+    const y = doc.page.height - M.bottom + 20;
     doc.font('Helvetica').fontSize(8).fillColor(MUTED)
-      .text(`B&M Telecom, Inc.  ·  Job ${job.bmNumber}  ·  Generated ${opts.generatedOn}`,
-        M.left, y, { width: W, align: 'left', lineBreak: false })
+      .text(`B&M Telecom, Inc.  ·  ${custRef ? custRef + '  ·  ' : ''}B&M ${job.bmNumber}  ·  Generated ${opts.generatedOn}`,
+        M.left, y, { width: W - 60, align: 'left', lineBreak: false })
       .text(`Page ${pageNo}`, M.left, y, { width: W, align: 'right', lineBreak: false });
     doc.fillColor(TEXT);
   }
@@ -152,78 +200,130 @@ export function buildFieldReport(
     header();
   }
 
-  /** label: value, on one line, skipping empties */
+  /** Break the page if `h` won't fit below the current position. */
+  function ensure(h: number) {
+    if (doc.y + h > maxY()) newPage();
+  }
+
+  /** Measure a string at a given font/size/width without drawing it. */
+  function measure(text: string, font: string, size: number, width: number) {
+    doc.font(font).fontSize(size);
+    return doc.heightOfString(text, { width });
+  }
+
   function field(label: string, value: unknown) {
     if (value === null || value === undefined || value === '' || value === 0) return;
-    room(16);
-    const startY = doc.y;
+    const text = String(value);
+    const labelW = 108;
+    const valueX = IND + labelW + 12;
+    const valueW = doc.page.width - M.right - valueX;
+    const h = Math.max(
+      measure(label.toUpperCase(), 'Helvetica-Bold', 8.5, labelW),
+      measure(text, 'Helvetica', 9.5, valueW),
+    );
+    ensure(h + 4);
+    const y = doc.y;
     doc.font('Helvetica-Bold').fontSize(8.5).fillColor(MUTED)
-      .text(label.toUpperCase(), M.left + 10, startY, { width: 110, continued: false });
+      .text(label.toUpperCase(), IND, y + 1, { width: labelW });
     doc.font('Helvetica').fontSize(9.5).fillColor(TEXT)
-      .text(String(value), M.left + 124, startY, { width: W - 134 });
-    doc.y = Math.max(doc.y, startY) + 3;
+      .text(text, valueX, y, { width: valueW });
+    doc.y = y + h + 4;
+    doc.fillColor(TEXT);
   }
 
   function subhead(text: string) {
-    room(22);
-    doc.moveDown(0.3);
+    ensure(20);
+    doc.y += 5;
     doc.font('Helvetica-Bold').fontSize(8.5).fillColor(NAVY)
-      .text(text.toUpperCase(), M.left + 10, doc.y, { characterSpacing: 0.4 });
-    doc.fillColor(TEXT).moveDown(0.15);
+      .text(text.toUpperCase(), IND, doc.y, { width: IW, characterSpacing: 0.4 });
+    doc.y += 3;
+    doc.fillColor(TEXT);
   }
 
-  /** simple table: fixed column widths, wraps a page when it has to */
-  function table(cols: { head: string; w: number; align?: string }[], rows: string[][]) {
-    const x0 = M.left + 10;
+  /**
+   * Column widths are weights, scaled to the indented width, and every cell is
+   * drawn inside its width MINUS a gutter — otherwise a right-aligned number
+   * runs straight into the next heading ("FootageRole", "HoursReason").
+   */
+  function table(
+    cols: { head: string; w: number; align?: 'left' | 'right' }[],
+    rows: string[][],
+  ) {
+    const total = cols.reduce((s, c) => s + c.w, 0);
+    const scale = IW / total;
+    const widths = cols.map((c) => c.w * scale);
+    const xs: number[] = [];
+    let acc = IND;
+    for (const w of widths) { xs.push(acc); acc += w; }
+
     const drawHead = () => {
-      room(18);
-      let x = x0;
+      ensure(16);
       const y = doc.y;
       doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED);
-      for (const c of cols) {
-        doc.text(c.head, x, y, { width: c.w, align: (c.align as any) ?? 'left' });
-        x += c.w;
-      }
-      doc.y = y + 11;
-      doc.moveTo(x0, doc.y - 2).lineTo(x0 + cols.reduce((s, c) => s + c.w, 0), doc.y - 2)
+      cols.forEach((c, i) => {
+        doc.text(c.head, xs[i], y, {
+          width: widths[i] - GUTTER, align: c.align ?? 'left', lineBreak: false,
+        });
+      });
+      doc.y = y + 12;
+      doc.moveTo(IND, doc.y - 3).lineTo(IND + IW, doc.y - 3)
         .lineWidth(0.5).strokeColor(LINE).stroke();
       doc.fillColor(TEXT);
     };
+
     drawHead();
     for (const r of rows) {
-      const need = 13;
-      if (doc.y + need > doc.page.height - M.bottom) { newPage(); drawHead(); }
-      let x = x0;
+      const h = Math.max(...r.map((cell, i) =>
+        measure(cell || '—', 'Helvetica', 9, widths[i] - GUTTER)));
+      if (doc.y + h + 3 > maxY()) { newPage(); drawHead(); }
       const y = doc.y;
-      let tallest = y;
       doc.font('Helvetica').fontSize(9).fillColor(TEXT);
       r.forEach((cell, i) => {
-        const c = cols[i];
-        doc.text(cell || '—', x, y, { width: c.w - 6, align: (c.align as any) ?? 'left' });
-        tallest = Math.max(tallest, doc.y);
-        x += c.w;
+        doc.text(cell || '—', xs[i], y, {
+          width: widths[i] - GUTTER, align: cols[i].align ?? 'left',
+        });
       });
-      doc.y = tallest + 2;
+      doc.y = y + h + 3;
     }
-    doc.moveDown(0.2);
+    doc.y += 2;
   }
 
-  // ---- page 1 -------------------------------------------------------------
+  // ======================= page 1 ==========================================
   header();
 
-  doc.font('Helvetica-Bold').fontSize(19).fillColor(TEXT)
-    .text(job.customerName ?? 'Field report', M.left, doc.y);
-  doc.font('Helvetica').fontSize(11).fillColor(MUTED)
-    .text(
-      [job.identifier ? `${ID_TYPE[job.identifierType ?? 'other'] ?? 'Reference'} ${job.identifier}` : null,
-       job.title].filter(Boolean).join('  ·  ') || ' ',
-      M.left, doc.y + 2, { width: W });
-  doc.moveDown(0.8);
+  doc.font('Helvetica-Bold').fontSize(20).fillColor(TEXT)
+    .text(job.customerName ?? 'Field report', M.left, doc.y, { width: W });
+
+  // The identifier and the title are frequently the same text typed twice —
+  // show it once.
+  const title = (job.title ?? '').trim();
+  const subtitle = title && title.toLowerCase() !== custRef.toLowerCase() ? title : '';
+  if (subtitle) {
+    doc.font('Helvetica').fontSize(11).fillColor(MUTED)
+      .text(subtitle, M.left, doc.y + 2, { width: W });
+  }
+  doc.y += 12;
+
+  // ---- the customer's reference, in a band they cannot miss ----
+  if (custRef) {
+    const h = 42;
+    ensure(h + 10);
+    const y = doc.y;
+    doc.rect(M.left, y, W, h).fillColor(BAND).fill();
+    doc.rect(M.left, y, 4, h).fillColor(NAVY).fill();
+    doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED)
+      .text(refLabel.toUpperCase(), M.left + 14, y + 7, { width: W - 28, lineBreak: false });
+    doc.font('Helvetica-Bold').fontSize(14).fillColor(NAVY)
+      .text(custRef, M.left + 14, y + 19, { width: W - 28 });
+    doc.y = y + h + 12;
+    doc.fillColor(TEXT);
+  }
 
   const dates = job.visits.map((v) => v.date).filter(Boolean).sort() as string[];
-  doc.font('Helvetica').fontSize(9.5).fillColor(TEXT);
   field('B&M job', job.bmNumber);
   field('Customer', job.customerName);
+  if (custRef) field(refLabel, custRef);
+  if (subtitle) field('Location', subtitle);
   field('Work performed', dates.length
     ? (dates[0] === dates[dates.length - 1]
         ? niceDate(dates[0])
@@ -231,41 +331,44 @@ export function buildFieldReport(
     : null);
   field('Visits', job.visits.length);
   field('Locations', job.visits.reduce((s, v) => s + v.locations.length, 0));
+  field('Technicians', tidyNames(job.visits.flatMap((v) => v.techs)).join(', '));
 
-  const allTechs = [...new Set(job.visits.flatMap((v) => v.techs))];
-  field('Technicians', allTechs.join(', '));
+  doc.y += 6;
 
-  doc.moveDown(0.6);
-
-  // ---- the running record -------------------------------------------------
+  // ======================= the running record ==============================
   job.visits.forEach((v, vi) => {
-    room(70);
-    doc.moveDown(0.4);
+    ensure(54);
+    doc.y += 6;
     const y = doc.y;
-    doc.rect(M.left, y, W, 22).fillColor('#eef2f5').fill();
-    doc.font('Helvetica-Bold').fontSize(10.5).fillColor(NAVY)
-      .text(`Visit ${vi + 1} — ${niceDate(v.date)}`, M.left + 8, y + 6);
-    doc.font('Helvetica').fontSize(9).fillColor(MUTED)
-      .text(v.techs.length ? v.techs.join(', ') : '', M.left, y + 7,
-        { width: W - 8, align: 'right' });
-    doc.y = y + 28;
+    doc.rect(M.left, y, W, 24).fillColor(BAND).fill();
+    doc.font('Helvetica-Bold').fontSize(11).fillColor(NAVY)
+      .text(`Visit ${vi + 1} — ${niceDate(v.date)}`, M.left + 9, y + 7, {
+        width: W * 0.55, lineBreak: false,
+      });
+    const crew = tidyNames(v.techs).join(', ');
+    if (crew) {
+      doc.font('Helvetica').fontSize(8.5).fillColor(MUTED)
+        .text(crew, M.left + W * 0.55, y + 8, {
+          width: W * 0.45 - 9, align: 'right', lineBreak: false,
+        });
+    }
+    doc.y = y + 30;
     doc.fillColor(TEXT);
 
     if (v.statusFlag) field('Status', STATUS[v.statusFlag] ?? v.statusFlag);
     if (v.narrative) field('Summary', v.narrative);
 
     v.locations.forEach((l, li) => {
-      room(60);
-      doc.moveDown(0.35);
-      const ly = doc.y;
-      doc.moveTo(M.left, ly).lineTo(doc.page.width - M.right, ly)
+      ensure(46);
+      doc.y += 4;
+      doc.moveTo(M.left, doc.y).lineTo(doc.page.width - M.right, doc.y)
         .lineWidth(0.5).strokeColor(LINE).stroke();
-      doc.y = ly + 7;
+      doc.y += 8;
 
       const heading = l.closureCode
         ?? (l.pmLocationNo ? `Location ${l.pmLocationNo}` : `Location ${li + 1}`);
-      doc.font('Helvetica-Bold').fontSize(11).fillColor(TEXT)
-        .text(heading, M.left + 10, doc.y);
+      doc.font('Helvetica-Bold').fontSize(11.5).fillColor(TEXT)
+        .text(heading, IND, doc.y, { width: IW });
       const sub = [
         STRUCTURE[l.structureType ?? ''] ?? l.structureType,
         l.structureOwner,
@@ -273,15 +376,13 @@ export function buildFieldReport(
       ].filter(Boolean).join('  ·  ');
       if (sub) {
         doc.font('Helvetica').fontSize(9).fillColor(MUTED)
-          .text(sub, M.left + 10, doc.y + 1, { width: W - 20 });
+          .text(sub, IND, doc.y + 1, { width: IW });
       }
-      doc.moveDown(0.35);
+      doc.y += 6;
       doc.fillColor(TEXT);
 
       field('Address', l.buildingAddress);
-      if (l.gpsLat != null && l.gpsLng != null) {
-        field('GPS', `${l.gpsLat}, ${l.gpsLng}`);
-      }
+      if (l.gpsLat != null && l.gpsLng != null) field('GPS', `${l.gpsLat}, ${l.gpsLng}`);
       field('Enclosure', [l.enclosureModel, l.enclosureNew ? '(new)' : null]
         .filter(Boolean).join(' ') || null);
       field('Case', l.caseAction ? CASE_ACTION[l.caseAction] ?? l.caseAction : null);
@@ -290,7 +391,8 @@ export function buildFieldReport(
       }
       field('Trays added', l.traysAdded);
       if (l.testFiberCount > 0) {
-        field('Fibers tested', `${l.testFiberCount}${l.testType ? ` (${l.testType.toUpperCase()})` : ''}`);
+        field('Fibers tested',
+          `${l.testFiberCount}${l.testType ? ` (${l.testType.toUpperCase()})` : ''}`);
       }
       field('As found', l.asFound);
       field('As built', l.asBuilt);
@@ -300,12 +402,12 @@ export function buildFieldReport(
         const ft = l.cables.reduce((s, c) => s + (Number(c.footage) || 0), 0);
         subhead(`Cables${ft ? ` — ${ft.toLocaleString()} ft total` : ''}`);
         table(
-          [{ head: 'Direction', w: 90 }, { head: 'Cable', w: 90 },
-           { head: 'Manufacturer', w: 95 }, { head: 'Date code', w: 70 },
-           { head: 'Footage', w: 60, align: 'right' }, { head: 'Role', w: 90 }],
+          [{ head: 'Direction', w: 80 }, { head: 'Cable', w: 70 },
+           { head: 'Manufacturer', w: 95 }, { head: 'Date code', w: 75 },
+           { head: 'Footage', w: 70, align: 'right' }, { head: 'Role', w: 100 }],
           l.cables.map((c) => [
-            c.direction ?? '', c.count ?? '', c.manufacturer ?? '',
-            c.date_code ?? '', c.footage != null ? String(c.footage) : '', c.role ?? '',
+            c.direction ?? '', c.count ?? '', c.manufacturer ?? '', c.date_code ?? '',
+            c.footage != null ? Number(c.footage).toLocaleString() : '', c.role ?? '',
           ]),
         );
       }
@@ -313,8 +415,8 @@ export function buildFieldReport(
       if (l.ports.length) {
         subhead('Panel ports');
         table(
-          [{ head: 'Panel', w: 140 }, { head: 'Port', w: 90 },
-           { head: 'Position', w: 90 }, { head: 'Result', w: 90 }],
+          [{ head: 'Panel', w: 150 }, { head: 'Port', w: 90 },
+           { head: 'Position', w: 90 }, { head: 'Result', w: 90, align: 'right' }],
           l.ports.map((p) => [
             p.panel ?? '', p.port ?? '', p.position ?? '',
             p.pass_fail ? p.pass_fail.toUpperCase() : '',
@@ -325,8 +427,8 @@ export function buildFieldReport(
       if (l.shots.length) {
         subhead('OTDR shots');
         table(
-          [{ head: 'Fiber', w: 110 }, { head: 'Direction', w: 100 },
-           { head: 'Distance', w: 90, align: 'right' }, { head: 'Event', w: 190 }],
+          [{ head: 'Fiber', w: 130 }, { head: 'Direction', w: 90 },
+           { head: 'Distance', w: 80, align: 'right' }, { head: 'Event', w: 160 }],
           l.shots.map((s) => [
             s.fiber_group ?? '', s.direction ?? '',
             s.distance_km != null ? `${s.distance_km} km` : '', s.event ?? '',
@@ -338,32 +440,37 @@ export function buildFieldReport(
         const hrs = l.downtime.reduce((s, x) => s + (Number(x.hours) || 0), 0);
         subhead(`Downtime — ${hrs} hr`);
         table(
-          [{ head: 'Hours', w: 70, align: 'right' }, { head: 'Reason', w: 380 }],
-          l.downtime.map((x) => [String(x.hours ?? ''), x.reason ?? 'unspecified']),
+          [{ head: 'Hours', w: 60, align: 'right' }, { head: 'Reason', w: 380 }],
+          l.downtime.map((x) => [
+            String(x.hours ?? ''),
+            x.reason ? DOWNTIME_REASON[x.reason] ?? x.reason : 'Unspecified',
+          ]),
         );
       }
 
       if (l.units.length) {
         subhead('Additional work');
         l.units.forEach((u) => {
-          room(13);
+          const h = measure(`•  ${u}`, 'Helvetica', 9.5, IW);
+          ensure(h + 2);
           doc.font('Helvetica').fontSize(9.5).fillColor(TEXT)
-            .text(`•  ${u}`, M.left + 10, doc.y, { width: W - 20 });
+            .text(`•  ${u}`, IND, doc.y, { width: IW });
+          doc.y += 2;
         });
-        doc.moveDown(0.2);
       }
     });
 
     if (!v.locations.length) {
+      ensure(16);
       doc.font('Helvetica-Oblique').fontSize(9.5).fillColor(MUTED)
-        .text('No locations recorded on this visit.', M.left + 10, doc.y);
+        .text('No locations recorded on this visit.', IND, doc.y, { width: IW });
       doc.fillColor(TEXT);
     }
   });
 
   if (!job.visits.length) {
     doc.font('Helvetica-Oblique').fontSize(10).fillColor(MUTED)
-      .text('No work has been recorded on this job yet.', M.left, doc.y);
+      .text('No work has been recorded on this job yet.', M.left, doc.y, { width: W });
   }
 
   footer();
