@@ -105,7 +105,12 @@ report.get('/jobs/:id/report.pdf', async (req, res) => {
     const logo = await readFile(LOGO).catch(() => null);
     const generatedOn = new Date().toISOString().slice(0, 10);
 
-    const doc = new PDFDocument({ size: 'LETTER', margin: 50, autoFirstPage: false, bufferPages: true });
+    // margin MUST be 0. pdfkit treats the margin as a hard boundary and
+    // silently starts a new page the moment anything is written below it — the
+    // footer sits below any non-zero margin, so every footer spawned a blank
+    // page and the page number on it spawned another. fieldReport.ts does all
+    // its own margins and pagination; pdfkit must not second-guess it.
+    const doc = new PDFDocument({ size: 'LETTER', margin: 0, autoFirstPage: false, bufferPages: true });
     const chunks: Buffer[] = [];
     doc.on('data', (c: Buffer) => chunks.push(c));
     const done = new Promise<Buffer>((resolve) => {

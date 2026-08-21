@@ -63,6 +63,33 @@ _Read this first on a new session. Updated 2026-08-13 — deployed live._
   directly in Supabase Auth default to role `tech` — fix in Admin → Users → role
   dropdown → admin.
 
+## v0.3.6 — blank pages in the field report (2026-08-21)
+
+**No SQL. One-character fix, but worth understanding.**
+
+Austin's 26-349 report came out **9 pages: content, header-only, page-number-only,
+repeating.**
+
+Cause: `new PDFDocument({ margin: 50 })`. **pdfkit treats the margin as a hard
+boundary and silently starts a new page the moment anything is written below
+it.** The footer draws at `pageHeight - 38`, which is below a 50pt margin — so
+every footer spawned a page, and the page number written on that new page
+spawned another.
+
+`fieldReport.ts` does all of its own margins and pagination, so pdfkit must not
+second-guess it. **`margin: 0`.**
+
+### The test now catches this class of bug
+The mock document used to verify the layout didn't simulate pdfkit's
+auto-pagination, which is why v0.3.5 passed its tests and still produced blank
+pages. The mock now starts a new page when a write falls below the margin, and
+asserts:
+- pdfkit never had to auto-add a page (`autoPages === 0`)
+- no page contains only header/footer furniture
+
+Run with `MOCK_MARGIN=50` and it reproduces Austin's exact output — blank pages
+2, 3, 5, 6, 8, 9. With margin 0: 4 pages, none blank.
+
 ## v0.3.5 — field report cleanup + full data backup (2026-08-21)
 
 **No SQL. Code push only.**
