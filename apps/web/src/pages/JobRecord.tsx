@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
-import { markJobComplete, downloadFieldReport } from '../lib/api';
+import { markJobComplete, downloadFieldReport, reopenJob } from '../lib/api';
 import { STRUCTURE_LABELS } from '../lib/types';
 import LocationDetail from '../components/LocationDetail';
 
@@ -25,6 +25,8 @@ export default function JobRecord() {
   const [openLoc, setOpenLoc] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  /** Closing a job generates the invoice and hides the buttons — never on one tap. */
+  const [confirming, setConfirming] = useState(false);
   const [dl, setDl] = useState(false);
   const [dlErr, setDlErr] = useState<string | null>(null);
 
@@ -44,7 +46,7 @@ export default function JobRecord() {
 
   async function complete() {
     if (!id) return;
-    setBusy(true); setMsg(null);
+    setBusy(true); setMsg(null); setConfirming(false);
     try {
       const r = await markJobComplete(id);
       setMsg(isOffice && r.total != null
@@ -60,6 +62,19 @@ export default function JobRecord() {
     try { await downloadFieldReport(id!, job?.bm_number ?? ''); }
     catch (e: any) { setDlErr(e.message); }
     setDl(false);
+  }
+
+  async function reopen() {
+    if (!id) return;
+    setBusy(true); setMsg(null);
+    try {
+      const r = await reopenJob(id);
+      setMsg(r.draftsVoided
+        ? 'Back on the roster. The old draft invoice was set aside.'
+        : 'Back on the roster.');
+      await load();
+    } catch (e: any) { setMsg(e.message); }
+    setBusy(false);
   }
 
   if (!job) return <div className="spinner">Loading…</div>;
@@ -141,9 +156,48 @@ export default function JobRecord() {
           <>
             <button className="btn accent" onClick={() => nav(`/jobs/${id}/add`)}>＋ Add my visit</button>
             <div style={{ height: 10 }} />
-            <button className="btn ok" disabled={busy} onClick={complete}>
-              {busy ? 'Closing…' : '🏁 Mark job complete'}
+
+            {/* Two taps, on purpose. One tap used to close the job, build the
+                invoice and hide these buttons, with no way back except SQL. */}
+            {!confirming ? (
+              <button className="btn ok" disabled={busy} onClick={() => setConfirming(true)}>
+                🏁 Mark job complete
+              </button>
+            ) : (
+              <div className="card" style={{ borderColor: 'var(--accent)' }}>
+                <strong>Close out {job.bm_number}?</strong>
+                <p className="small" style={{ marginTop: 6 }}>
+                  This tells the office the work is finished and builds the invoice.
+                  The crew can't add any more visits to it.
+                </p>
+                <p className="muted small">
+                  Only do this when the whole job is done — not just tonight's work.
+                  If you're coming back, leave it open.
+                </p>
+                <div style={{ height: 10 }} />
+                <button className="btn ok" disabled={busy} onClick={complete}>
+                  {busy ? 'Closing…' : 'Yes, the job is finished'}
+                </button>
+                <div style={{ height: 8 }} />
+                <button className="btn ghost" disabled={busy} onClick={() => setConfirming(false)}>
+                  No, keep it open
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Reopening used to be a SQL errand for Austin. */}
+        {job.status === 'complete' && isOffice && (
+          <>
+            <div style={{ height: 10 }} />
+            <button className="btn ghost" disabled={busy} onClick={reopen}>
+              {busy ? 'Reopening…' : '↩ Reopen this job'}
             </button>
+            <p className="muted small" style={{ marginTop: 4 }}>
+              Puts it back on the crew's roster so they can add or fix a visit. The
+              current draft invoice is set aside; closing it again builds a fresh one.
+            </p>
           </>
         )}
         {isOffice && (

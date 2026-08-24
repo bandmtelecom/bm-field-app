@@ -38,6 +38,7 @@ export default function Jobs() {
           <button className="iconbtn" onClick={() => nav('/admin')}>Admin</button>
         )}
         <button className="iconbtn" onClick={() => nav('/closures')}>Closures</button>
+        <button className="iconbtn" onClick={() => nav('/password')}>Password</button>
         <button className="iconbtn" onClick={() => signOut()}>Sign out</button>
       </div>
       <div className="content">

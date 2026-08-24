@@ -63,6 +63,44 @@ _Read this first on a new session. Updated 2026-08-13 — deployed live._
   directly in Supabase Auth default to role `tech` — fix in Admin → Users → role
   dropdown → admin.
 
+## v0.4.0 — guard rails before crew training (2026-08-22)
+
+**No SQL. Code push only.** Built for Monday, when the whole crew gets trained.
+Ten people learning at once breaks things two careful people never would.
+
+### Closing a job is no longer one tap
+`🏁 Mark job complete` used to fire immediately: it closed the job, generated the
+invoice, and hid the buttons, with **no way back except Austin running SQL**.
+That is how 26-350 got closed by accident.
+
+- **Two taps now.** The first opens a confirmation that says plainly what
+  happens — work is finished, invoice gets built, no more visits — and warns
+  that it means the WHOLE job, not just tonight's work.
+- **↩ Reopen this job** for office/admin, on any completed job.
+  `POST /jobs/:id/reopen` sets status back to `reopened`, clears the completion
+  stamps, and **voids** (never deletes) the draft invoice — it's the record of
+  what was billed at that moment. Closing again builds a fresh draft.
+  Blocked once a job is `invoiced`.
+- Techs can't reopen; the office does.
+
+### Visit status defaults to "Partial — return needed"
+`AddVisit` opened on **Complete**, and the guys skim past that field.
+`STATUS_FLAGS` now lists Partial first and the form defaults to it. The safe
+direction to skim in is "we're coming back".
+
+Note this is a SEPARATE control from the button above — the visit status flag
+never closed a job. Both were fixed because both were wrong.
+
+### Passwords
+Everyone starts on a temp password the office typed, and there was no way to
+change it. Every fumbled password meant deleting and recreating the account —
+which **severs the link between a tech and every visit he ever filed**.
+
+- **`/password`** — a tech changes his own, reachable from the Jobs header.
+- **Admin → Users → Reset password** — set one for somebody without touching
+  their account or their history. `PATCH /admin/users/:id` now accepts
+  `password` (8 char minimum).
+
 ## v0.3.6 — blank pages in the field report (2026-08-21)
 
 **No SQL. One-character fix, but worth understanding.**

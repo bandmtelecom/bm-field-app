@@ -77,6 +77,18 @@ adminRouter.patch('/admin/users/:id', async (req, res) => {
     return res.status(400).json({ error: "You can't deactivate your own account." });
   }
 
+  // Admin resetting somebody's password. Before this, a tech who forgot his
+  // password had to be deleted and recreated — which loses the link between him
+  // and every visit he ever filed.
+  const { password } = req.body ?? {};
+  if (typeof password === 'string' && password.length) {
+    if (password.length < 8) {
+      return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+    }
+    const { error } = await admin.auth.admin.updateUserById(id, { password });
+    if (error) return res.status(400).json({ error: error.message });
+  }
+
   const patch: Record<string, unknown> = {};
   if (role === 'admin' || role === 'office' || role === 'tech') patch.role = role;
   if (typeof is_active === 'boolean') patch.is_active = is_active;

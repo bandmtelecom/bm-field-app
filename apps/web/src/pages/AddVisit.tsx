@@ -16,7 +16,9 @@ export default function AddVisit() {
   const [visitDate, setVisitDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [techs, setTechs] = useState('');
   const [narrative, setNarrative] = useState('');
-  const [statusFlag, setStatusFlag] = useState<string>('complete');
+  // Default to 'partial_return', never 'complete'. The guys skim past this
+  // field, and the safe direction to skim in is "we're coming back".
+  const [statusFlag, setStatusFlag] = useState<string>('partial_return');
   const [leadHours, setLeadHours] = useState('');
   const [locations, setLocations] = useState<LocationForm[]>([emptyLocation()]);
   const [busy, setBusy] = useState(false);

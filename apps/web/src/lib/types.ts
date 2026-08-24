@@ -26,9 +26,11 @@ export const STRUCTURE_LABELS: Record<StructureType, string> = {
   mh: 'Manhole', hh: 'Handhole', aerial: 'Aerial', building: 'Building',
 };
 
+// Partial leads deliberately: a tech who is not paying attention should leave
+// the job OPEN, not closed. Closing is the destructive direction.
 export const STATUS_FLAGS = [
-  ['complete', 'Complete'],
   ['partial_return', 'Partial — return needed'],
+  ['complete', 'Complete'],
   ['ready_to_test', 'Ready to test'],
   ['could_not_access', 'Could not access'],
   ['troubleshooting', 'Troubleshooting / ongoing'],

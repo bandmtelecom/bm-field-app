@@ -18,6 +18,18 @@ export async function markJobComplete(jobId: string) {
   return res.json();
 }
 
+/** Office/admin: put a completed job back on the roster. */
+export async function reopenJob(jobId: string) {
+  const res = await fetch(`${BASE}/jobs/${jobId}/reopen`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+  });
+  if (!res.ok) {
+    throw new Error((await res.json().catch(() => ({})))?.error ?? 'Could not reopen the job');
+  }
+  return res.json();
+}
+
 /** Office/admin: fetch the priced draft for a job. */
 export async function getInvoiceDraft(jobId: string) {
   const res = await fetch(`${BASE}/jobs/${jobId}/invoice`, { headers: await authHeader() });
@@ -107,7 +119,7 @@ export async function createUser(body: { email: string; password: string; full_n
   return res.json();
 }
 
-export async function updateUser(id: string, patch: { role?: string; is_active?: boolean }) {
+export async function updateUser(id: string, patch: { role?: string; is_active?: boolean; password?: string }) {
   const res = await fetch(`${BASE}/admin/users/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json', ...(await authHeader()) },

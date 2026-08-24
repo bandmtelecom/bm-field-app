@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
@@ -82,6 +82,18 @@ function UsersPanel({ selfId }: { selfId: string }) {
     catch (e: any) { setErr(e.message); }
   }
 
+  /** Reset somebody's password without destroying their account. */
+  const [resetting, setResetting] = useState<string | null>(null);
+  const [newPw, setNewPw] = useState('');
+  async function saveNewPassword(u: AdminUser) {
+    setErr(null); setMsg(null);
+    try {
+      await updateUser(u.id, { password: newPw });
+      setMsg(`New password set for ${u.email}. Send it to them exactly as typed.`);
+      setResetting(null); setNewPw('');
+    } catch (e: any) { setErr(e.message); }
+  }
+
   function genPassword() {
     // simple readable temp password
     const w = Math.random().toString(36).slice(2, 8);
@@ -129,7 +141,8 @@ function UsersPanel({ selfId }: { selfId: string }) {
             <thead><tr><th>User</th><th>Role</th><th>Status</th><th className="num">Action</th></tr></thead>
             <tbody>
               {users.map((u) => (
-                <tr key={u.id}>
+                <Fragment key={u.id}>
+                <tr>
                   <td>
                     {u.full_name || <span className="muted">—</span>}
                     <div className="muted" style={{ fontSize: 11 }}>{u.email}</div>
@@ -159,14 +172,47 @@ function UsersPanel({ selfId }: { selfId: string }) {
                   </td>
                   <td className="num">
                     {u.id === selfId ? <span className="pill">you</span> : (
-                      <button className={u.is_active ? 'rm' : 'addline'}
-                        style={{ padding: '4px 8px', width: 'auto', fontSize: 12, whiteSpace: 'nowrap' }}
-                        onClick={() => toggleActive(u)}>
-                        {u.is_active ? 'Lock out' : 'Restore access'}
-                      </button>
+                      <>
+                        <button className={u.is_active ? 'rm' : 'addline'}
+                          style={{ padding: '4px 8px', width: 'auto', fontSize: 12, whiteSpace: 'nowrap' }}
+                          onClick={() => toggleActive(u)}>
+                          {u.is_active ? 'Lock out' : 'Restore access'}
+                        </button>
+                        <div style={{ height: 4 }} />
+                        <button className="addline"
+                          style={{ padding: '4px 8px', width: 'auto', fontSize: 12, whiteSpace: 'nowrap' }}
+                          onClick={() => { setResetting(resetting === u.id ? null : u.id); setNewPw(''); }}>
+                          {resetting === u.id ? 'Cancel' : 'Reset password'}
+                        </button>
+                      </>
                     )}
                   </td>
                 </tr>
+                {resetting === u.id && (
+                  <tr>
+                    <td colSpan={4}>
+                      <div className="block">
+                        <label>New password for {u.email}</label>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          <input value={newPw} onChange={(e) => setNewPw(e.target.value)}
+                            placeholder="at least 8 characters" />
+                          <button type="button" className="cardbtn ghost"
+                            onClick={() => setNewPw(`BM-${Math.random().toString(36).slice(2, 8)}!${Math.floor(Math.random() * 90 + 10)}`)}>
+                            Gen
+                          </button>
+                        </div>
+                        <p className="muted small" style={{ marginTop: 4 }}>
+                          Copy it before you save — paste it to them rather than retyping.
+                          Their account and all their reports stay exactly as they are.
+                        </p>
+                        <div style={{ height: 8 }} />
+                        <button className="btn" disabled={newPw.length < 8}
+                          onClick={() => saveNewPassword(u)}>Set password</button>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>

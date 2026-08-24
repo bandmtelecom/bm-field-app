@@ -80,3 +80,52 @@ invoices.get('/jobs/:id/invoice', async (req, res) => {
 
   return res.json({ draft, lines: lines ?? [] });
 });
+
+/**
+ * POST /jobs/:id/reopen — put a closed job back on the crew's roster.
+ *
+ * Closing a job was a one-way door in the app: the buttons vanish and the only
+ * way back was Austin running SQL by hand. That is a bad place to be with a
+ * crew learning the app, and it already cost us on 26-350. Office/admin only —
+ * a tech should not be able to reopen a job the office has closed out.
+ *
+ * The draft invoice is VOIDED rather than deleted: it is the record of what was
+ * billed at that moment, and marking the job complete again builds a fresh one
+ * from whatever is on the job by then.
+ */
+invoices.post('/jobs/:id/reopen', async (req, res) => {
+  const caller = await getCaller(req.headers.authorization);
+  if (!caller) return res.status(401).json({ error: 'unauthorized' });
+  if (caller.role !== 'office' && caller.role !== 'admin') {
+    return res.status(403).json({ error: 'the office reopens jobs' });
+  }
+
+  const jobId = req.params.id;
+  try {
+    const { data: job } = await admin
+      .from('jobs').select('id, status, bm_number').eq('id', jobId).single();
+    if (!job) return res.status(404).json({ error: 'job not found' });
+    if (job.status === 'invoiced') {
+      return res.status(400).json({
+        error: 'That job has already been invoiced — talk to the office before reopening it.',
+      });
+    }
+
+    await admin.from('jobs')
+      .update({ status: 'reopened', completed_at: null, completed_by: null })
+      .eq('id', jobId);
+
+    const { data: voided } = await admin.from('invoice_drafts')
+      .update({ status: 'void' })
+      .eq('job_id', jobId).eq('status', 'draft')
+      .select('id');
+
+    return res.json({
+      ok: true,
+      status: 'reopened',
+      draftsVoided: (voided ?? []).length,
+    });
+  } catch (e: any) {
+    return res.status(400).json({ error: e?.message ?? 'could not reopen the job' });
+  }
+});
