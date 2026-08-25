@@ -55,8 +55,18 @@ export default function AddVisit() {
         // The tech either picked an existing closure (matched by cable) or asked
         // for a new one. Only mint a new code when nothing was picked — this is
         // what stops the registry filling up with duplicates of the same hole.
+        // AUSTIN'S RULE (8/25): cables recorded = a closure. No cables means the
+        // crew opened the hole to look at what is in it, which is a billable
+        // manhole/handhole entry and nothing more. GPS alone never made a
+        // closure - that produced registry entries for holes nobody spliced.
+        // A closure with no GPS is fine: it still gets a code and can be found
+        // by name, it just cannot be found by standing next to it.
+        const hasCables = L.cables.some(
+          (c) => (c.count || '').trim() || (c.direction || '').trim() || (c.manufacturer || '').trim(),
+        );
+
         let closureId: string | null = L.closure_id;
-        if (!closureId && L.gps_lat && L.gps_lng) {
+        if (!closureId && hasCables) {
           // NEVER swallow these errors again. For eight days `next_closure_code`
           // threw on every call (an ambiguous column reference), both errors here
           // were destructured away, and every location saved with closure_id null.
@@ -75,7 +85,7 @@ export default function AddVisit() {
 
             const { data: closure, error: cErr } = await supabase.from('closures').insert({
               customer_id: job.customer_id, seq, closure_code: code,
-              gps_lat: Number(L.gps_lat), gps_lng: Number(L.gps_lng),
+              gps_lat: numOrNull(L.gps_lat), gps_lng: numOrNull(L.gps_lng),
               structure_type: L.structure_type, structure_owner: L.structure_owner || null,
               building_address: L.building_address || null, enclosure_model: L.enclosure_model || null,
               created_by: userId,

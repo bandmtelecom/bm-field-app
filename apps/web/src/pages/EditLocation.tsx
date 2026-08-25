@@ -105,7 +105,11 @@ export default function EditLocation() {
     try {
       // attach to the picked closure, or mint one if GPS was added and none chosen
       let closureId: string | null = form.closure_id;
-      if (!closureId && form.gps_lat && form.gps_lng && customerId) {
+      // Same rule as AddVisit: cables make a closure, not GPS.
+      const hasCables = form.cables.some(
+        (c: any) => (c.count || '').trim() || (c.direction || '').trim() || (c.manufacturer || '').trim(),
+      );
+      if (!closureId && hasCables && customerId) {
         // Errors here used to be discarded, which is how the registry stayed
         // empty for eight days with nothing on screen looking wrong. This is the
         // office screen, so failing outright is right - unlike a tech mid-shift,
@@ -120,7 +124,7 @@ export default function EditLocation() {
 
         const { data: closure, error: cErr } = await supabase.from('closures').insert({
           customer_id: customerId, seq, closure_code: code,
-          gps_lat: Number(form.gps_lat), gps_lng: Number(form.gps_lng),
+          gps_lat: numOrNull(form.gps_lat), gps_lng: numOrNull(form.gps_lng),
           structure_type: form.structure_type, structure_owner: form.structure_owner || null,
           building_address: form.building_address || null,
           enclosure_model: form.enclosure_model || null, created_by: userId,
