@@ -42,7 +42,7 @@
 [CmdletBinding()]
 param(
   [string] $Token,
-  [string] $Destination = '\\BMFILESERV\bmtelecom\B&M Field APP',
+  [string] $Destination = "$env:USERPROFILE\OneDrive\BM Field App Backups",
   [string] $TaskName    = 'BM Field App weekly backup',
   [switch] $SkipTestRun,
   [switch] $SkipTask
@@ -183,8 +183,7 @@ the Register-ScheduledTask block from docs\BACKUP.md.
 
   $null = Register-ScheduledTask -TaskName $TaskName -Action $action `
     -Trigger $trigger -Settings $settings `
-    -Description "Backs up the B&M Field App to $Destination. See docs\BACKUP.md." `
-    -RunLevel Highest
+    -Description "Backs up the B&M Field App to $Destination. See docs\BACKUP.md."
 
   $info = Get-ScheduledTaskInfo -TaskName $TaskName
   Write-Host "  scheduled     '$TaskName'"

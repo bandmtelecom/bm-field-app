@@ -1,9 +1,9 @@
 <#
 .SYNOPSIS
-  B&M Field App — weekly backup. Runs on Windows, writes to the office network.
+  B&M Field App - weekly backup. Runs on Windows.
 
 .DESCRIPTION
-  Pulls everything out of the live app and drops one dated zip on the network
+  Pulls everything out of the live app and drops one dated zip in the backup
   folder. Meant to be run unattended by Task Scheduler; safe to run by hand.
 
   Contents of the zip:
@@ -14,12 +14,22 @@
     MANIFEST.txt   what was captured, what failed, how to restore it
 
   WHY POWERSHELL and not the Node version in this same folder: this has to run
-  on the Windows machine, because that is the only place that can reach both the
-  app on Render AND the \\BMFILESERV share. Windows PowerShell 5.1 ships with
-  Windows, so there is nothing to install and nothing to keep updated.
+  on the Windows machine, because that is the only place that can reach the app
+  on Render at all - the Claude cloud session and its Linux workspace are both
+  blocked from onrender.com. Windows PowerShell 5.1 ships with Windows, so
+  there is nothing to install and nothing to keep updated.
+
+  WHY NOT STRAIGHT TO THE OFFICE FILE SERVER: \\BMFILESERV sits behind a
+  firewall that takes real effort to get through from a new machine, and an
+  elevated shell cannot see it at all. Not worth fighting for a weekly copy.
+  The zip lands in OneDrive (so it is offsite automatically) and gets carried
+  to the server by hand. If the destination is ever unreachable the backup is
+  still kept locally - see the delivery block near the end.
 
 .PARAMETER Destination
-  Where the dated zip lands. Defaults to the office backup folder.
+  Where the dated zip lands. Defaults to a folder in OneDrive, so the archive
+  gets an offsite copy for free. Copy it to the office server when convenient -
+  the file server sits behind a firewall this script cannot reliably cross.
 
 .PARAMETER RepoPath
   The bm-field-app clone, for the code bundle.
@@ -36,15 +46,15 @@
   which is public on GitHub. It reads the token from, in order:
     1. $env:BM_BACKUP_TOKEN
     2. %LOCALAPPDATA%\bm-field-backup\token.txt
-  Both are on the local machine and neither is on the share — anyone who can
-  read the backup folder must not thereby be handed a key to the live database.
+  Both are on the local machine and neither is in the backup folder - anyone who
+  can read a backup must not thereby be handed a key to the live database.
 
   Exit codes:  0 = complete   2 = built but incomplete (read MANIFEST)   1 = failed
 #>
 
 [CmdletBinding()]
 param(
-  [string] $Destination = '\\BMFILESERV\bmtelecom\B&M Field APP',
+  [string] $Destination = "$env:USERPROFILE\OneDrive\BM Field App Backups",
   [string] $ApiBase     = 'https://bm-field-api.onrender.com',
   [string] $RepoPath    = "$env:USERPROFILE\OneDrive\Documents\GitHub\GitHub\bm-field-app",
   [switch] $SkipCode
@@ -290,18 +300,34 @@ try {
   $localZip = Join-Path $work "bm-field-backup-$stamp.zip"
   Compress-Archive -Path $rootDir -DestinationPath $localZip -CompressionLevel Optimal -Force
 
-  if (-not (Test-Path -LiteralPath $Destination)) {
-    $null = New-Item -ItemType Directory -Path $Destination -Force
-    Write-Host "      created $Destination"
+  # Deliver it. If the destination is unreachable - a share behind a firewall, a
+  # disconnected drive - the backup itself is still perfectly good, so park it
+  # somewhere local rather than throwing away work that succeeded. Losing a
+  # finished backup over a delivery problem is the wrong way to fail.
+  $src      = (Get-Item -LiteralPath $localZip).Length
+  $finalZip = $null
+  try {
+    if (-not (Test-Path -LiteralPath $Destination)) {
+      $null = New-Item -ItemType Directory -Path $Destination -Force
+      Write-Host "      created $Destination"
+    }
+    $candidate = Join-Path $Destination "bm-field-backup-$stamp.zip"
+    Copy-Item -LiteralPath $localZip -Destination $candidate -Force
+
+    # Trust nothing: confirm the file is actually there and the right size.
+    $dst = (Get-Item -LiteralPath $candidate).Length
+    if ($src -ne $dst) { throw "the copy came out the wrong size ($dst vs $src bytes)" }
+    $finalZip = $candidate
+  } catch {
+    $fallbackDir = Join-Path $script:StateRoot 'undelivered'
+    $null = New-Item -ItemType Directory -Path $fallbackDir -Force
+    $finalZip = Join-Path $fallbackDir "bm-field-backup-$stamp.zip"
+    Copy-Item -LiteralPath $localZip -Destination $finalZip -Force
+    Note ("could not write to {0} ({1}). The backup was kept at {2} instead - copy it across by hand." -f `
+          $Destination, $_.Exception.Message, $finalZip)
   }
-  $finalZip = Join-Path $Destination "bm-field-backup-$stamp.zip"
-  Copy-Item -LiteralPath $localZip -Destination $finalZip -Force
 
-  # Trust nothing: confirm the file is actually there and the right size.
-  $src = (Get-Item -LiteralPath $localZip).Length
   $dst = (Get-Item -LiteralPath $finalZip).Length
-  if ($src -ne $dst) { throw "Copy to $Destination came out the wrong size ($dst vs $src bytes)." }
-
   Write-Host ""
   Write-Host ("{0}  ({1:N1} MB)" -f $finalZip, ($dst / 1MB))
 

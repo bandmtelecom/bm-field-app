@@ -4,9 +4,16 @@ Everything B&M has lives in one Supabase database. If it goes, the jobs, the
 visits, the closure registry, the priced drafts and the rate card all go with
 it. This is the copy that survives that.
 
-**Where backups live:** `\\BMFILESERV\bmtelecom\B&M Field APP`
-One dated zip per week. That share is itself backed up weekly, so the archive
-gets a second life without anyone doing anything.
+**Where backups live:** `%USERPROFILE%\OneDrive\BM Field App Backups`
+One dated zip per week, and OneDrive gives it an offsite copy automatically.
+
+**Why not straight onto `\\BMFILESERV`:** the office file server sits behind a
+firewall that takes real effort to get through from any new machine, and an
+elevated PowerShell cannot see it at all (elevation creates a separate logon
+session with its own view of the network). Not worth fighting for a weekly copy.
+Austin carries the zip across by hand when convenient. If you ever do want it
+automated, pass `-Destination '\\BMFILESERV\bmtelecom\B&M Field APP'` and sort
+the credentials out first.
 
 ---
 
@@ -125,8 +132,11 @@ $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable `
   -DontStopOnIdleEnd -ExecutionTimeLimit (New-TimeSpan -Hours 1)
 Register-ScheduledTask -TaskName 'BM Field App weekly backup' `
   -Action $action -Trigger $trigger -Settings $settings `
-  -Description 'Pulls the live app to \\BMFILESERV\bmtelecom\B&M Field APP'
+  -Description 'Backs up the B&M Field App'
 ```
+
+**Do not add `-RunLevel Highest`.** The task needs no admin rights at run time,
+and an elevated task sees a different view of the network and of mapped drives.
 
 `-StartWhenAvailable` matters: if the PC is off at 4pm Thursday, the task runs
 at the next opportunity instead of skipping the week silently.
@@ -215,9 +225,15 @@ asking for an open job's card is a guaranteed 404, so the script skips them.
 newlines inside quoted CSV fields, so counting lines would overstate every table
 that has one. Both scripts parse the CSV properly to count.
 
-**The zip is built locally, then copied to the share.** Compressing straight
-onto a network path is slow and leaves a half-written file if the link drops.
-The script also re-checks the copied file's size before calling it a success.
+**The zip is built in temp, then copied to the destination.** Compressing
+straight onto a network path is slow and leaves a half-written file if the link
+drops. The script re-checks the copied file's size before calling it a success.
+
+**A backup is never thrown away because it could not be delivered.** If the
+destination is unreachable, the finished zip is kept in
+`%LOCALAPPDATA%\bm-field-backup\undelivered\` and the run exits 2 with a
+warning naming the file. Losing a good backup over a copy problem is the wrong
+way to fail. Check that folder if a week's zip is missing from OneDrive.
 
 **Nothing is ever deleted.** Old backups accumulate. If the share gets tight,
 prune by hand — no script should be quietly deleting the only copy of anything.
