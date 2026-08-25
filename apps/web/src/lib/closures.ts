@@ -255,8 +255,18 @@ export async function getClosure(id: string): Promise<ClosureRow | null> {
 
 /** One-line summary of a cable, the way a splicer would say it. */
 export function cableLabel(c: CableRow): string {
-  const bits = [c.direction, c.count, c.manufacturer, c.date_code].filter(Boolean);
-  const main = bits.join(' · ') || 'cable';
-  const tail = [c.footage ? `${c.footage} ft` : null, c.role].filter(Boolean).join(' · ');
-  return tail ? `${main} — ${tail}` : main;
+  // Since 8/25 the form types count, date code and footage into `count` as one
+  // string. Older rows have them split across columns, so join whatever exists.
+  // This is what the tech reads while deciding which closure he is standing on,
+  // so it has to look right for a cable logged last week and one logged today.
+  const spec = [
+    c.count,
+    c.date_code,
+    c.footage ? `${c.footage} ft` : null,
+    c.role,
+  ].map((x) => (x ?? '').toString().trim()).filter(Boolean).join(' · ');
+
+  const head = [c.direction, c.manufacturer].map((x) => (x ?? '').trim()).filter(Boolean).join(' · ');
+  if (head && spec) return `${head} — ${spec}`;
+  return head || spec || 'cable';
 }

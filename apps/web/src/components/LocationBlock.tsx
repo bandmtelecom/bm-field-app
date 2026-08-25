@@ -1,4 +1,6 @@
+import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
+import { supabase } from '../lib/supabase';
 import {
   ENCLOSURE_MODELS, STRUCTURE_OWNERS, MANUFACTURERS, DOWNTIME_REASONS,
   CASE_MATERIALS, EXTRA_UNITS, inferTrayMaterial,
@@ -55,6 +57,24 @@ export default function LocationBlock({
 }) {
   const set = (patch: Partial<LocationForm>) => onChange({ ...value, ...patch });
   const isBuilding = value.structure_type === 'building';
+
+  /** Standard makes + every manufacturer already recorded on a real job. */
+  const [seenMfrs, setSeenMfrs] = useState<string[]>([]);
+  useEffect(() => {
+    let alive = true;
+    supabase.from('cables').select('manufacturer').not('manufacturer', 'is', null)
+      .then(({ data }) => {
+        if (!alive) return;
+        const names = (data ?? [])
+          .map((r: any) => (r.manufacturer ?? '').trim())
+          .filter(Boolean);
+        setSeenMfrs(Array.from(new Set(names)));
+      });
+    return () => { alive = false; };
+  }, []);
+  const mfrOptions = Array.from(new Set([...MANUFACTURERS, ...seenMfrs]))
+    .filter((m) => m && m !== 'Other')      // "Other" is what you pick when you can't type; now you can
+    .sort((a, b) => a.localeCompare(b));
 
   /** Positive longitude = a dropped minus sign. See the note by the GPS row. */
   const needsWestFix = (() => {
@@ -223,6 +243,16 @@ export default function LocationBlock({
           </div>
         )} />
 
+      {/* Type-ahead for manufacturer: a real <input> with a <datalist>, not a
+          <select>. The old dropdown could not accept a make that was not on the
+          list, so anything unusual got filed as "Other" - which is exactly why
+          manufacturer turned out to be the least trustworthy field in the data.
+          The list is seeded from the standard makes plus every manufacturer
+          already typed on a real job, so it learns as the crew works. */}
+      <datalist id="bm-mfr-list">
+        {mfrOptions.map((m) => <option key={m} value={m} />)}
+      </datalist>
+
       {/* cables OR panel ports */}
       {isBuilding ? (
         <RepeatList label="Panel ports & positions" rows={value.panel_ports}
@@ -240,18 +270,23 @@ export default function LocationBlock({
           onAdd={() => set({ cables: [...value.cables, { direction: '', count: '', manufacturer: '', date_code: '', footage: '', role: '' }] })}
           onRemove={(i) => set({ cables: value.cables.filter((_, x) => x !== i) })}
           render={(r, i) => (
-            <div key={i} style={{ marginBottom: 6 }}>
-              <div className="row">
-                <input placeholder="Dir (S/W…)" value={r.direction} onChange={(e) => upd(value.cables, i, { direction: e.target.value }, (v) => set({ cables: v }))} />
-                <input placeholder="144F" value={r.count} onChange={(e) => upd(value.cables, i, { count: e.target.value }, (v) => set({ cables: v }))} />
-                <input placeholder="Footage" value={r.footage} onChange={(e) => upd(value.cables, i, { footage: e.target.value }, (v) => set({ cables: v }))} />
-              </div>
-              <div className="row" style={{ marginTop: 4 }}>
-                <select value={r.manufacturer} onChange={(e) => upd(value.cables, i, { manufacturer: e.target.value }, (v) => set({ cables: v }))}>
-                  <option value="">Mfr…</option>{MANUFACTURERS.map((m) => <option key={m}>{m}</option>)}
-                </select>
-                <input placeholder="Role (tail…)" value={r.role} onChange={(e) => upd(value.cables, i, { role: e.target.value }, (v) => set({ cables: v }))} />
-              </div>
+            /* Three boxes, one line. Austin, 8/25: fewer boxes, everything about
+               the cable itself typed straight into one field. The techs were
+               already doing this - the live data has "48F 03-23" and
+               "96F JUN2008" crammed into the old count box - so this matches
+               how they actually write it down rather than fighting it.
+               `date_code` and `footage` are no longer written; old rows keep
+               theirs and still display. `role` is gone from the form. */
+            <div key={i} className="row" style={{ marginBottom: 6 }}>
+              <input list="bm-mfr-list" placeholder="Manufacturer"
+                value={r.manufacturer}
+                onChange={(e) => upd(value.cables, i, { manufacturer: e.target.value }, (v) => set({ cables: v }))} />
+              <input placeholder="Dir" style={{ maxWidth: 70 }}
+                value={r.direction}
+                onChange={(e) => upd(value.cables, i, { direction: e.target.value }, (v) => set({ cables: v }))} />
+              <input placeholder="144F 03-23 51436"
+                value={r.count}
+                onChange={(e) => upd(value.cables, i, { count: e.target.value }, (v) => set({ cables: v }))} />
             </div>
           )} />
       )}

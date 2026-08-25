@@ -401,14 +401,23 @@ export function buildFieldReport(
       if (l.cables.length) {
         const ft = l.cables.reduce((s, c) => s + (Number(c.footage) || 0), 0);
         subhead(`Cables${ft ? ` — ${ft.toLocaleString()} ft total` : ''}`);
+        // The form now takes count, date code and footage as one typed string in
+        // `count`. Rows captured before 8/25 still have them in separate columns,
+        // so compose whatever is present - a report must read correctly for old
+        // jobs and new ones alike. `role` is no longer captured; it is still
+        // shown when an older row has one rather than silently dropping detail
+        // the customer saw on a previous report.
+        const cableText = (c: typeof l.cables[number]) => [
+          c.count ?? '',
+          c.date_code ?? '',
+          c.footage != null ? `${Number(c.footage).toLocaleString()} ft` : '',
+          c.role ?? '',
+        ].map((x) => String(x).trim()).filter(Boolean).join('  ');
+
         table(
-          [{ head: 'Direction', w: 80 }, { head: 'Cable', w: 70 },
-           { head: 'Manufacturer', w: 95 }, { head: 'Date code', w: 75 },
-           { head: 'Footage', w: 70, align: 'right' }, { head: 'Role', w: 100 }],
-          l.cables.map((c) => [
-            c.direction ?? '', c.count ?? '', c.manufacturer ?? '', c.date_code ?? '',
-            c.footage != null ? Number(c.footage).toLocaleString() : '', c.role ?? '',
-          ]),
+          [{ head: 'Manufacturer', w: 110 }, { head: 'Direction', w: 80 },
+           { head: 'Cable', w: 300 }],
+          l.cables.map((c) => [c.manufacturer ?? '', c.direction ?? '', cableText(c)]),
         );
       }
 
