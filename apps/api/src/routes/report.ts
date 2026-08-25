@@ -2,7 +2,8 @@ import { Router } from 'express';
 import PDFDocument from 'pdfkit';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { admin, getCaller } from '../supabase.js';
+import { admin } from '../supabase.js';
+import { getExportCaller } from '../lib/automation.js';
 import { buildFieldReport, type ReportJob } from '../lib/fieldReport.js';
 import { EXTRA_UNIT_LABELS } from '../lib/unitLabels.js';
 
@@ -21,10 +22,9 @@ function safeFilename(s: string) {
  * documentation package that goes out alongside the invoice.
  */
 report.get('/jobs/:id/report.pdf', async (req, res) => {
-  const caller = await getCaller(req.headers.authorization);
+  // office/admin at a browser, or the weekly backup job's token.
+  const caller = await getExportCaller(req, ['office', 'admin']);
   if (!caller) return res.status(401).json({ error: 'unauthorized' });
-  if (caller.role !== 'office' && caller.role !== 'admin')
-    return res.status(403).json({ error: 'forbidden' });
 
   try {
     const { data: job } = await admin

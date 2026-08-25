@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import JSZip from 'jszip';
-import { admin, getCaller } from '../supabase.js';
+import { admin } from '../supabase.js';
+import { getExportCaller } from '../lib/automation.js';
 
 export const backup = Router();
 
@@ -69,12 +70,13 @@ async function fetchAll(table: string): Promise<Record<string, unknown>[]> {
 
 /**
  * GET /export/backup.zip — the whole database as CSVs.
- * Admin only: this is every price and every customer record in one file.
+ *
+ * Admin only, or the weekly backup job presenting X-Backup-Token: this is every
+ * price and every customer record in one file. See ../lib/automation.ts.
  */
 backup.get('/export/backup.zip', async (req, res) => {
-  const caller = await getCaller(req.headers.authorization);
+  const caller = await getExportCaller(req, ['admin']);
   if (!caller) return res.status(401).json({ error: 'unauthorized' });
-  if (caller.role !== 'admin') return res.status(403).json({ error: 'admins only' });
 
   try {
     const zip = new JSZip();

@@ -3,7 +3,8 @@ import JSZip from 'jszip';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { RATE_CARD, type RateUnit } from '@bm/billing';
-import { admin, getCaller } from '../supabase.js';
+import { admin } from '../supabase.js';
+import { getExportCaller } from '../lib/automation.js';
 import {
   patchQuantities, forceFullRecalc, stripCalcChainRel, stripCalcChainContentType,
 } from '../lib/xlsxPatch.js';
@@ -59,10 +60,9 @@ async function findSheetPath(zip: JSZip): Promise<string> {
  * Office/admin only (it's all dollars).
  */
 rateCard.get('/jobs/:id/invoice.xlsx', async (req, res) => {
-  const caller = await getCaller(req.headers.authorization);
+  // office/admin at a browser, or the weekly backup job's token.
+  const caller = await getExportCaller(req, ['office', 'admin']);
   if (!caller) return res.status(401).json({ error: 'unauthorized' });
-  if (caller.role !== 'office' && caller.role !== 'admin')
-    return res.status(403).json({ error: 'forbidden' });
 
   try {
     const { data: job } = await admin

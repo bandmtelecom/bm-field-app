@@ -24,6 +24,9 @@ services:
         sync: false          # SECRET — server only
       - key: CORS_ORIGINS
         sync: false          # your web app URL(s)
+      - key: BACKUP_TOKEN
+        sync: false          # SECRET — lets the weekly backup job read exports.
+                             # 32+ chars or the automation door stays shut.
 
   # ---- Field PWA (static site) ----
   - type: web
