@@ -235,5 +235,13 @@ destination is unreachable, the finished zip is kept in
 warning naming the file. Losing a good backup over a copy problem is the wrong
 way to fail. Check that folder if a week's zip is missing from OneDrive.
 
-**Nothing is ever deleted.** Old backups accumulate. If the share gets tight,
+**Nothing is ever deleted.** Old backups accumulate. If the folder gets tight,
 prune by hand — no script should be quietly deleting the only copy of anything.
+
+**The zip uses Windows-style path separators inside.** That is how Windows
+PowerShell's `Compress-Archive` writes them. Windows Explorer, 7-Zip and the
+standard `unzip` command all handle it (unzip prints a warning and carries on),
+so any realistic restore is fine. But a *scripted* restore using Python's
+`zipfile` or Java would not convert them and would produce files with
+backslashes in their names. If you ever automate a restore, extract with
+`unzip` or 7-Zip rather than a language's built-in zip library.
