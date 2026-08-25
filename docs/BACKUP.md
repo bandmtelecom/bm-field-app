@@ -49,6 +49,28 @@ remembering. It just needs the PC on and logged in.
 
 ## Setup — once
 
+### The short way
+
+Set `BACKUP_TOKEN` in Render first (step 1 below), then, in an **Administrator**
+PowerShell:
+
+```powershell
+cd "$env:USERPROFILE\OneDrive\Documents\GitHub\GitHub\bm-field-app"
+powershell -ExecutionPolicy Bypass -File tools\Setup-WeeklyBackup.ps1
+```
+
+It prompts for the token (hidden as you paste), locks the token file down so it
+is not readable by every account on the machine, takes a real backup to prove
+the whole chain works, and registers the Thursday task. **If the test backup
+fails it refuses to register the task** — a task that fails every week is worse
+than no task, because it looks like it is working.
+
+Safe to re-run: it overwrites the token and replaces the task rather than
+stacking up duplicates.
+
+The rest of this section is the same thing by hand, and is worth reading once so
+you know what the script did.
+
 ### 1. `BACKUP_TOKEN` on the API
 
 Render → **bm-field-api** → Environment → add `BACKUP_TOKEN`, a long random
