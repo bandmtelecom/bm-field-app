@@ -13,6 +13,8 @@ export default function AddVisit() {
   const { userId } = useSession();
 
   const [job, setJob] = useState<any>(null);
+  /** Visit saved, but one or more closures could not be registered. */
+  const [closureWarn, setClosureWarn] = useState<string[] | null>(null);
   const [visitDate, setVisitDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [techs, setTechs] = useState('');
   const [narrative, setNarrative] = useState('');
@@ -35,7 +37,8 @@ export default function AddVisit() {
 
   async function submit() {
     if (!id || !job) return;
-    setBusy(true); setErr(null);
+    setBusy(true); setErr(null); setClosureWarn(null);
+    const closureWarnings: string[] = [];
     try {
       // 1) the visit
       const { data: visit, error: vErr } = await supabase.from('visits').insert({
@@ -54,17 +57,41 @@ export default function AddVisit() {
         // what stops the registry filling up with duplicates of the same hole.
         let closureId: string | null = L.closure_id;
         if (!closureId && L.gps_lat && L.gps_lng) {
-          const { data: cc } = await supabase.rpc('next_closure_code', { p_customer: job.customer_id });
-          const code = Array.isArray(cc) ? cc[0]?.code : (cc as any)?.code;
-          const seq = Array.isArray(cc) ? cc[0]?.seq : (cc as any)?.seq;
-          const { data: closure } = await supabase.from('closures').insert({
-            customer_id: job.customer_id, seq, closure_code: code,
-            gps_lat: Number(L.gps_lat), gps_lng: Number(L.gps_lng),
-            structure_type: L.structure_type, structure_owner: L.structure_owner || null,
-            building_address: L.building_address || null, enclosure_model: L.enclosure_model || null,
-            created_by: userId,
-          }).select('id').single();
-          closureId = closure?.id ?? null;
+          // NEVER swallow these errors again. For eight days `next_closure_code`
+          // threw on every call (an ambiguous column reference), both errors here
+          // were destructured away, and every location saved with closure_id null.
+          // 33 locations, 0 closures, and nothing on screen ever looked wrong.
+          // A closure we failed to register must be visible to somebody.
+          try {
+            const { data: cc, error: rpcErr } = await supabase
+              .rpc('next_closure_code', { p_customer: job.customer_id });
+            if (rpcErr) throw rpcErr;
+
+            const code = Array.isArray(cc) ? cc[0]?.code : (cc as any)?.code;
+            const seq = Array.isArray(cc) ? cc[0]?.seq : (cc as any)?.seq;
+            if (!code || seq == null) {
+              throw new Error('the database returned no closure code');
+            }
+
+            const { data: closure, error: cErr } = await supabase.from('closures').insert({
+              customer_id: job.customer_id, seq, closure_code: code,
+              gps_lat: Number(L.gps_lat), gps_lng: Number(L.gps_lng),
+              structure_type: L.structure_type, structure_owner: L.structure_owner || null,
+              building_address: L.building_address || null, enclosure_model: L.enclosure_model || null,
+              created_by: userId,
+            }).select('id').single();
+            if (cErr || !closure) throw cErr ?? new Error('the closure row would not save');
+
+            closureId = closure.id;
+          } catch (ce: any) {
+            // The visit itself still saves - a tech standing in a hole at 2am must
+            // not lose a filled-in report because the registry hiccuped. But the
+            // failure is collected and shown plainly once the save finishes.
+            closureWarnings.push(
+              `Location ${ord + 1}${L.pm_location_no ? ` (${L.pm_location_no})` : ''}: ${ce?.message ?? 'unknown error'}`,
+            );
+            console.error('closure registration failed', ce);
+          }
         }
 
         const trayCode = Number(L.trays_added) > 0
@@ -103,6 +130,13 @@ export default function AddVisit() {
           })));
       }
 
+      if (closureWarnings.length) {
+        // Saved, but the closure registry did not get everything. Say so and stay
+        // on the page - navigating away would bury it exactly like before.
+        setClosureWarn(closureWarnings);
+        setBusy(false);
+        return;
+      }
       nav(`/jobs/${id}`);
     } catch (e: any) {
       setErr(e.message ?? 'Something went wrong saving the report.');
@@ -148,8 +182,30 @@ export default function AddVisit() {
         <button className="addline" onClick={() => setLocations((p) => [...p, emptyLocation()])}>＋ Add another location</button>
 
         {err && <div className="error">{err}</div>}
+
+        {closureWarn && (
+          <div className="card" style={{ borderColor: 'var(--accent)' }}>
+            <strong>Your report saved — but the closure list didn't update.</strong>
+            <p className="small" style={{ marginTop: 6 }}>
+              Everything you entered is safe and the office has it. What didn't
+              happen is this closure getting added to the permanent list, so it
+              won't come up next time somebody works this hole.
+            </p>
+            <ul className="small" style={{ marginTop: 6, paddingLeft: 18 }}>
+              {closureWarn.map((w, i) => <li key={i}>{w}</li>)}
+            </ul>
+            <p className="muted small" style={{ marginTop: 6 }}>
+              Send this to the office — it needs fixing, not retrying.
+            </p>
+            <div style={{ height: 10 }} />
+            <button className="btn" onClick={() => nav(`/jobs/${id}`)}>Got it, back to the job</button>
+          </div>
+        )}
+
         <div style={{ height: 12 }} />
-        <button className="btn" disabled={busy} onClick={submit}>{busy ? 'Saving…' : 'Submit report'}</button>
+        {!closureWarn && (
+          <button className="btn" disabled={busy} onClick={submit}>{busy ? 'Saving…' : 'Submit report'}</button>
+        )}
         <div style={{ height: 24 }} />
       </div>
     </div>

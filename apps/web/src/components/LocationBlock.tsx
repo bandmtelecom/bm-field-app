@@ -56,6 +56,14 @@ export default function LocationBlock({
   const set = (patch: Partial<LocationForm>) => onChange({ ...value, ...patch });
   const isBuilding = value.structure_type === 'building';
 
+  /** Positive longitude = a dropped minus sign. See the note by the GPS row. */
+  const needsWestFix = (() => {
+    const raw = (value.gps_lng ?? '').trim();
+    if (!raw) return false;
+    const n = Number(raw);
+    return Number.isFinite(n) && n > 0;
+  })();
+
   function grabGps() {
     if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
@@ -122,6 +130,27 @@ export default function LocationBlock({
         <input placeholder="lng" value={value.gps_lng} onChange={(e) => set({ gps_lng: e.target.value })} />
         <button type="button" className="iconbtn" style={{ background: 'var(--navy)' }} onClick={grabGps}>Grab</button>
       </div>
+
+      {/* A dropped minus sign puts the hole in China. It has happened five times
+          already, to two different techs, always on hand-typed coordinates -
+          Grab writes the sign correctly. Everywhere B&M works is west of
+          Greenwich, so a positive longitude is always a typo. Offer the fix
+          rather than just complaining, and never silently rewrite what he
+          typed. */}
+      {needsWestFix && (
+        <div className="card" style={{ borderColor: 'var(--accent)', marginTop: 6 }}>
+          <strong className="small">That longitude is in the eastern hemisphere.</strong>
+          <p className="muted small" style={{ marginTop: 4 }}>
+            We work west of Greenwich, so it should start with a minus. As typed,
+            this hole is about 7,000 miles away and nobody will find it again.
+          </p>
+          <div style={{ height: 8 }} />
+          <button type="button" className="btn"
+            onClick={() => set({ gps_lng: `-${value.gps_lng.trim()}` })}>
+            Change to −{value.gps_lng.trim()}
+          </button>
+        </div>
+      )}
 
       <ClosurePicker
         customerId={customerId ?? null}

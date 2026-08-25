@@ -106,17 +106,29 @@ export default function EditLocation() {
       // attach to the picked closure, or mint one if GPS was added and none chosen
       let closureId: string | null = form.closure_id;
       if (!closureId && form.gps_lat && form.gps_lng && customerId) {
-        const { data: cc } = await supabase.rpc('next_closure_code', { p_customer: customerId });
+        // Errors here used to be discarded, which is how the registry stayed
+        // empty for eight days with nothing on screen looking wrong. This is the
+        // office screen, so failing outright is right - unlike a tech mid-shift,
+        // whoever is here can deal with it now.
+        const { data: cc, error: rpcErr } = await supabase
+          .rpc('next_closure_code', { p_customer: customerId });
+        if (rpcErr) throw new Error(`Could not get a closure code: ${rpcErr.message}`);
+
         const code = Array.isArray(cc) ? cc[0]?.code : (cc as any)?.code;
         const seq = Array.isArray(cc) ? cc[0]?.seq : (cc as any)?.seq;
-        const { data: closure } = await supabase.from('closures').insert({
+        if (!code || seq == null) throw new Error('The database returned no closure code.');
+
+        const { data: closure, error: cErr } = await supabase.from('closures').insert({
           customer_id: customerId, seq, closure_code: code,
           gps_lat: Number(form.gps_lat), gps_lng: Number(form.gps_lng),
           structure_type: form.structure_type, structure_owner: form.structure_owner || null,
           building_address: form.building_address || null,
           enclosure_model: form.enclosure_model || null, created_by: userId,
         }).select('id').single();
-        closureId = closure?.id ?? null;
+        if (cErr || !closure) {
+          throw new Error(`Could not register the closure: ${cErr?.message ?? 'no row returned'}`);
+        }
+        closureId = closure.id;
       }
 
       const trayCode = Number(form.trays_added) > 0
