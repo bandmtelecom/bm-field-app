@@ -32,6 +32,9 @@ export interface LocationForm {
   extras: string[];
   /** counts for extras that bill per-each (e.g. TEST_CD_PMD). code → qty as typed. */
   extra_qty: Record<string, string>;
+  /** Photos / traces picked in the field, not yet uploaded. They upload after
+   *  the visit saves, so a dropped signal costs a photo and never the report. */
+  photos: { file: File; preview: string }[];
   /** an EXISTING closure this work attaches to. null = mint a new one. */
   closure_id: string | null;
   closure_code: string | null;
@@ -45,6 +48,7 @@ export function emptyLocation(): LocationForm {
     trays_added: '', test_fiber_count: '', test_type: 'otdr',
     narrative: '', as_found: '', as_built: '',
     downtimes: [], cables: [], panel_ports: [], shots: [], extras: [], extra_qty: {},
+    photos: [],
     closure_id: null, closure_code: null,
   };
 }
@@ -83,6 +87,22 @@ export default function LocationBlock({
     const n = Number(raw);
     return Number.isFinite(n) && n > 0;
   })();
+
+  /** Pick files. Previews are object URLs, revoked when the row is removed. */
+  function addPhotos(list: FileList | null) {
+    if (!list?.length) return;
+    const added = Array.from(list).map((file) => ({
+      file,
+      preview: file.type.startsWith('image/') ? URL.createObjectURL(file) : '',
+    }));
+    set({ photos: [...value.photos, ...added] });
+  }
+
+  function removePhoto(i: number) {
+    const p = value.photos[i];
+    if (p?.preview) URL.revokeObjectURL(p.preview);
+    set({ photos: value.photos.filter((_, x) => x !== i) });
+  }
 
   function grabGps() {
     if (!navigator.geolocation) return;
@@ -170,6 +190,56 @@ export default function LocationBlock({
             Change to −{value.gps_lng.trim()}
           </button>
         </div>
+      )}
+
+      {/* ---- photos & traces -------------------------------------------------
+          Two buttons on purpose. "Take photo" opens the camera directly, which
+          is what a man in a hole wants; "Choose files" opens the picker for
+          shots already taken or an OTDR trace pulled off the set. Nothing
+          uploads here — files ride in memory and go up after the visit saves,
+          so a dropped signal costs a photo, never the whole report. */}
+      <label>Photos / traces</label>
+      <div className="row">
+        <label className="iconbtn" style={{ background: 'var(--navy)', textAlign: 'center' }}>
+          📷 Take photo
+          <input type="file" accept="image/*" capture="environment" multiple
+            style={{ display: 'none' }}
+            onChange={(e) => addPhotos(e.target.files)} />
+        </label>
+        <label className="iconbtn" style={{ textAlign: 'center' }}>
+          📎 Choose files
+          <input type="file" accept="image/*,.sor,application/pdf" multiple
+            style={{ display: 'none' }}
+            onChange={(e) => addPhotos(e.target.files)} />
+        </label>
+      </div>
+
+      {value.photos.length > 0 && (
+        <div className="row" style={{ flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+          {value.photos.map((p, i) => (
+            <div key={i} style={{ position: 'relative', width: 72 }}>
+              {p.preview ? (
+                <img src={p.preview} alt=""
+                  style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+              ) : (
+                <div style={{
+                  width: 72, height: 72, borderRadius: 6, display: 'flex',
+                  alignItems: 'center', justifyContent: 'center', fontSize: 11,
+                  background: 'var(--line, #e6e6e6)', textAlign: 'center', padding: 4,
+                }}>{p.file.name.slice(-12)}</div>
+              )}
+              <button type="button" className="rm"
+                style={{ position: 'absolute', top: -6, right: -6, padding: '0 6px', width: 'auto' }}
+                onClick={() => removePhoto(i)}>×</button>
+            </div>
+          ))}
+        </div>
+      )}
+      {value.photos.length > 0 && (
+        <p className="muted small" style={{ marginTop: 4 }}>
+          {value.photos.length} file{value.photos.length === 1 ? '' : 's'} — these upload
+          once you submit the report.
+        </p>
       )}
 
       <ClosurePicker

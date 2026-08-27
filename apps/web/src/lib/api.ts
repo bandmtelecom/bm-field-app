@@ -18,6 +18,30 @@ export async function markJobComplete(jobId: string) {
   return res.json();
 }
 
+/** Office/admin: the job has been billed and sent — move it to the Archive. */
+export async function markJobInvoiced(jobId: string) {
+  const res = await fetch(`${BASE}/jobs/${jobId}/invoiced`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+  });
+  if (!res.ok) {
+    throw new Error((await res.json().catch(() => ({})))?.error ?? 'Could not archive the job');
+  }
+  return res.json();
+}
+
+/** Office/admin: pull a job back out of the Archive. */
+export async function unarchiveJob(jobId: string) {
+  const res = await fetch(`${BASE}/jobs/${jobId}/unarchive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+  });
+  if (!res.ok) {
+    throw new Error((await res.json().catch(() => ({})))?.error ?? 'Could not unarchive the job');
+  }
+  return res.json();
+}
+
 /** Office/admin: put a completed job back on the roster. */
 export async function reopenJob(jobId: string) {
   const res = await fetch(`${BASE}/jobs/${jobId}/reopen`, {

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { uploadAttachment } from '../lib/attachments';
 import { useSession } from '../lib/session';
 import { STATUS_FLAGS } from '../lib/types';
 import LocationBlock, { emptyLocation, inferTrayMaterial, LocationForm } from '../components/LocationBlock';
@@ -39,6 +40,8 @@ export default function AddVisit() {
     if (!id || !job) return;
     setBusy(true); setErr(null); setClosureWarn(null);
     const closureWarnings: string[] = [];
+    /** { locationId, files } queued while saving; uploaded once the visit is safe. */
+    const photoQueue: { locationId: string; label: string; files: File[] }[] = [];
     try {
       // 1) the visit
       const { data: visit, error: vErr } = await supabase.from('visits').insert({
@@ -104,8 +107,20 @@ export default function AddVisit() {
           }
         }
 
+        // queued, not uploaded — see the upload pass after the loop
+        if (L.photos?.length) {
+          photoQueue.push({
+            locationId: '',            // filled in once the location row exists
+            label: `Location ${ord + 1}${L.pm_location_no ? ` (${L.pm_location_no})` : ''}`,
+            files: L.photos.map((p) => p.file),
+          });
+        }
+
         const trayCode = Number(L.trays_added) > 0
           ? inferTrayMaterial(L.enclosure_model, L.splice_type || null) : null;
+
+        const queuedForThisLocation = photoQueue[photoQueue.length - 1];
+        const queuedIsMine = !!L.photos?.length;
 
         const { data: loc, error: lErr } = await supabase.from('locations').insert({
           visit_id: visit.id, closure_id: closureId, pm_location_no: L.pm_location_no || null,
@@ -121,6 +136,8 @@ export default function AddVisit() {
           ordinal: ord++,
         }).select('id').single();
         if (lErr || !loc) throw lErr ?? new Error('Could not save a location');
+
+        if (queuedIsMine && queuedForThisLocation) queuedForThisLocation.locationId = loc.id;
 
         // children
         if (L.shots.length) await supabase.from('shots').insert(
@@ -138,6 +155,25 @@ export default function AddVisit() {
             qty: Number(L.extra_qty?.[code]) > 0 ? Number(L.extra_qty[code]) : 1,
             ordinal: i,
           })));
+      }
+
+      // ---- photos, last and deliberately so -------------------------------
+      // The report is already saved by this point. Uploading from a manhole is
+      // the least reliable thing this form does, so it happens where a failure
+      // costs only the photo. Sequential, not parallel: a phone on two bars
+      // handles one upload at a time far better than six at once.
+      for (const q of photoQueue) {
+        if (!q.locationId) continue;
+        for (const file of q.files) {
+          try {
+            await uploadAttachment({
+              file, jobId: id, visitId: visit.id, locationId: q.locationId, uploadedBy: userId,
+            });
+          } catch (pe: any) {
+            closureWarnings.push(`${q.label} — photo ${file.name}: ${pe?.message ?? 'upload failed'}`);
+            console.error('attachment upload failed', pe);
+          }
+        }
       }
 
       if (closureWarnings.length) {
@@ -195,17 +231,18 @@ export default function AddVisit() {
 
         {closureWarn && (
           <div className="card" style={{ borderColor: 'var(--accent)' }}>
-            <strong>Your report saved — but the closure list didn't update.</strong>
+            <strong>Your report saved — but not everything went with it.</strong>
             <p className="small" style={{ marginTop: 6 }}>
-              Everything you entered is safe and the office has it. What didn't
-              happen is this closure getting added to the permanent list, so it
-              won't come up next time somebody works this hole.
+              Everything you typed is safe and the office has it. What didn't
+              finish is listed below — usually a photo that wouldn't upload on a
+              bad signal, or a closure that didn't get added to the permanent list.
             </p>
             <ul className="small" style={{ marginTop: 6, paddingLeft: 18 }}>
               {closureWarn.map((w, i) => <li key={i}>{w}</li>)}
             </ul>
             <p className="muted small" style={{ marginTop: 6 }}>
-              Send this to the office — it needs fixing, not retrying.
+              Photos can be added again later from the location. Anything else
+              here, send to the office — it needs fixing, not retrying.
             </p>
             <div style={{ height: 10 }} />
             <button className="btn" onClick={() => nav(`/jobs/${id}`)}>Got it, back to the job</button>

@@ -18,12 +18,15 @@ function safeFilename(s: string) {
 /**
  * GET /jobs/:id/report.pdf — the customer's record of work.
  *
- * Office/admin only, same as the rate card. Carries NO prices; it's the
- * documentation package that goes out alongside the invoice.
+ * Any active user. Carries NO prices; it's the documentation package that goes
+ * out alongside the invoice, and the crew's own record of what they did.
  */
 report.get('/jobs/:id/report.pdf', async (req, res) => {
-  // office/admin at a browser, or the weekly backup job's token.
-  const caller = await getExportCaller(req, ['office', 'admin']);
+  // Techs too, since 8/27. This document carries NO prices - it is the record
+  // of work that goes to the customer - and a splicer needs to be able to pull
+  // up what was done at a hole he is standing in. Dollars stay office/admin on
+  // the rate card route and behind RLS on invoice_drafts.
+  const caller = await getExportCaller(req, ['office', 'admin', 'tech']);
   if (!caller) return res.status(401).json({ error: 'unauthorized' });
 
   try {

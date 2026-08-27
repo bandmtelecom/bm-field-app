@@ -9,6 +9,7 @@ import Admin from './pages/Admin';
 import Closures from './pages/Closures';
 import EditLocation from './pages/EditLocation';
 import ChangePassword from './pages/ChangePassword';
+import Archive from './pages/Archive';
 import ClosureDetail from './pages/ClosureDetail';
 
 export default function App() {
@@ -24,6 +25,7 @@ export default function App() {
       <Route path="/jobs/:id/invoice" element={<InvoiceView />} />
       <Route path="/locations/:id/edit" element={<EditLocation />} />
       <Route path="/password" element={<ChangePassword />} />
+      <Route path="/archive" element={<Archive />} />
       <Route path="/closures" element={<Closures />} />
       <Route path="/closures/:id" element={<ClosureDetail />} />
       <Route path="/admin" element={<Admin />} />

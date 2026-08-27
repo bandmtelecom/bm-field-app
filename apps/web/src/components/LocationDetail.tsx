@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { listForLocation, type AttachmentView } from '../lib/attachments';
 import { STRUCTURE_LABELS } from '../lib/types';
 import { DOWNTIME_REASONS, EXTRA_UNITS, CASE_MATERIALS } from '../lib/options';
 
@@ -56,6 +57,9 @@ function Section({ title, children }: { title: string; children: any }) {
 export default function LocationDetail({ loc }: { loc: any }) {
   const [d, setD] = useState<Detail | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  /** Loaded separately: signed links expire, and a slow bucket must not hold
+   *  up the written record, which is the part people actually came to read. */
+  const [files, setFiles] = useState<AttachmentView[]>([]);
 
   useEffect(() => {
     let alive = true;
@@ -77,6 +81,8 @@ export default function LocationDetail({ loc }: { loc: any }) {
         if (alive) setErr(e.message ?? 'Could not load this location.');
       }
     })();
+    listForLocation(loc.id).then((f) => { if (alive) setFiles(f); }).catch(() => {});
+
     return () => { alive = false; };
   }, [loc.id]);
 
@@ -215,6 +221,35 @@ export default function LocationDetail({ loc }: { loc: any }) {
                   ⏱ {x.hours} hr — {DOWNTIME_LABELS[x.reason] ?? x.reason ?? 'unspecified'}
                 </div>
               ))}
+            </Section>
+          )}
+
+          {/* --- photos & traces from the field --- */}
+          {files.length > 0 && (
+            <Section title={`Photos & files (${files.length})`}>
+              <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+                {files.map((f) => (
+                  <a key={f.id} href={f.url ?? '#'} target="_blank" rel="noreferrer"
+                     style={{ width: 84, textDecoration: 'none' }}>
+                    {f.kind === 'photo' && f.url ? (
+                      <img src={f.url} alt={f.filename ?? ''} loading="lazy"
+                        style={{ width: 84, height: 84, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+                    ) : (
+                      <div style={{
+                        width: 84, height: 84, borderRadius: 6, display: 'flex', flexDirection: 'column',
+                        alignItems: 'center', justifyContent: 'center', gap: 2,
+                        background: 'var(--line, #e6e6e6)', fontSize: 11, textAlign: 'center', padding: 4,
+                      }}>
+                        <span style={{ fontSize: 20 }}>{f.kind === 'otdr' ? '📈' : '📄'}</span>
+                        <span>{f.kind === 'otdr' ? 'OTDR' : 'File'}</span>
+                      </div>
+                    )}
+                    <div className="muted small" style={{
+                      marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>{f.filename ?? ''}</div>
+                  </a>
+                ))}
+              </div>
             </Section>
           )}
 

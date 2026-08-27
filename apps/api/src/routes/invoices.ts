@@ -129,3 +129,95 @@ invoices.post('/jobs/:id/reopen', async (req, res) => {
     return res.status(400).json({ error: e?.message ?? 'could not reopen the job' });
   }
 });
+
+/**
+ * POST /jobs/:id/invoiced — the job has been billed and sent to the customer.
+ *
+ * Moves it off the crew's working list and into the Archive. Office/admin only:
+ * a tech should never be deciding that a job is billed.
+ *
+ * The draft is marked 'sent' rather than left as 'draft' so the record says what
+ * actually happened to it. Nothing is deleted — the whole point of the Archive
+ * is being able to go back and look.
+ */
+invoices.post('/jobs/:id/invoiced', async (req, res) => {
+  const caller = await getCaller(req.headers.authorization);
+  if (!caller) return res.status(401).json({ error: 'unauthorized' });
+  if (caller.role !== 'office' && caller.role !== 'admin') {
+    return res.status(403).json({ error: 'the office marks jobs invoiced' });
+  }
+
+  const jobId = req.params.id;
+  try {
+    const { data: job } = await admin
+      .from('jobs').select('id, status, bm_number').eq('id', jobId).single();
+    if (!job) return res.status(404).json({ error: 'job not found' });
+
+    if (job.status === 'invoiced') {
+      return res.status(400).json({ error: 'That job is already in the Archive.' });
+    }
+    // Billing a job nobody has closed out means billing work the crew may not
+    // have finished writing up. Make them close it first.
+    if (job.status !== 'complete') {
+      return res.status(400).json({
+        error: 'Mark the job complete first — an open job has no finished invoice to send.',
+      });
+    }
+
+    await admin.from('jobs')
+      .update({
+        status: 'invoiced',
+        invoiced_at: new Date().toISOString(),
+        invoiced_by: caller.id,
+      })
+      .eq('id', jobId);
+
+    const { data: sent } = await admin.from('invoice_drafts')
+      .update({ status: 'sent' })
+      .eq('job_id', jobId).eq('status', 'draft')
+      .select('id');
+
+    return res.json({ ok: true, status: 'invoiced', draftsMarkedSent: (sent ?? []).length });
+  } catch (e: any) {
+    return res.status(400).json({ error: e?.message ?? 'could not mark the job invoiced' });
+  }
+});
+
+/**
+ * POST /jobs/:id/unarchive — pull a job back out of the Archive.
+ *
+ * Same reasoning as job reopen: a one-way door that can only be undone by
+ * running SQL is a bad door. Billing the wrong job is an easy mistake and the
+ * fix should not require Austin.
+ */
+invoices.post('/jobs/:id/unarchive', async (req, res) => {
+  const caller = await getCaller(req.headers.authorization);
+  if (!caller) return res.status(401).json({ error: 'unauthorized' });
+  if (caller.role !== 'office' && caller.role !== 'admin') {
+    return res.status(403).json({ error: 'the office manages the archive' });
+  }
+
+  const jobId = req.params.id;
+  try {
+    const { data: job } = await admin
+      .from('jobs').select('id, status').eq('id', jobId).single();
+    if (!job) return res.status(404).json({ error: 'job not found' });
+    if (job.status !== 'invoiced') {
+      return res.status(400).json({ error: 'That job is not in the Archive.' });
+    }
+
+    await admin.from('jobs')
+      .update({ status: 'complete', invoiced_at: null, invoiced_by: null })
+      .eq('id', jobId);
+
+    // Put the draft back the way it was so the job looks exactly as it did
+    // before it was archived.
+    await admin.from('invoice_drafts')
+      .update({ status: 'draft' })
+      .eq('job_id', jobId).eq('status', 'sent');
+
+    return res.json({ ok: true, status: 'complete' });
+  } catch (e: any) {
+    return res.status(400).json({ error: e?.message ?? 'could not unarchive the job' });
+  }
+});

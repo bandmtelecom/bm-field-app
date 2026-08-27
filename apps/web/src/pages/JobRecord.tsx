@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
-import { markJobComplete, downloadFieldReport, reopenJob } from '../lib/api';
+import { markJobComplete, downloadFieldReport, reopenJob, markJobInvoiced, unarchiveJob } from '../lib/api';
 import { STRUCTURE_LABELS } from '../lib/types';
 import LocationDetail from '../components/LocationDetail';
 
@@ -27,6 +27,8 @@ export default function JobRecord() {
   const [msg, setMsg] = useState<string | null>(null);
   /** Closing a job generates the invoice and hides the buttons — never on one tap. */
   const [confirming, setConfirming] = useState(false);
+  /** Archiving takes it off the crew's list — also never on one tap. */
+  const [archiving, setArchiving] = useState(false);
   const [dl, setDl] = useState(false);
   const [dlErr, setDlErr] = useState<string | null>(null);
 
@@ -62,6 +64,28 @@ export default function JobRecord() {
     try { await downloadFieldReport(id!, job?.bm_number ?? ''); }
     catch (e: any) { setDlErr(e.message); }
     setDl(false);
+  }
+
+  async function archive() {
+    if (!id) return;
+    setBusy(true); setMsg(null); setArchiving(false);
+    try {
+      await markJobInvoiced(id);
+      setMsg('Filed in the Archive. It\u2019s off the working list.');
+      await load();
+    } catch (e: any) { setMsg(e.message); }
+    setBusy(false);
+  }
+
+  async function unarchive() {
+    if (!id) return;
+    setBusy(true); setMsg(null);
+    try {
+      await unarchiveJob(id);
+      setMsg('Back on the completed list.');
+      await load();
+    } catch (e: any) { setMsg(e.message); }
+    setBusy(false);
   }
 
   async function reopen() {
@@ -200,11 +224,56 @@ export default function JobRecord() {
             </p>
           </>
         )}
-        {isOffice && (
+        {/* Mark invoiced / unarchive — office only. */}
+        {job.status === 'complete' && isOffice && (
           <>
             <div style={{ height: 10 }} />
-            {/* the customer's record of work — no prices, safe to send out */}
-            <button className="btn ghost" disabled={dl} onClick={getReport}>
+            {!archiving ? (
+              <button className="btn ghost" disabled={busy} onClick={() => setArchiving(true)}>
+                📁 Mark invoiced &amp; archive
+              </button>
+            ) : (
+              <div className="card" style={{ borderColor: 'var(--accent)' }}>
+                <strong>Archive {job.bm_number}?</strong>
+                <p className="small" style={{ marginTop: 6 }}>
+                  Do this once the invoice has actually gone to the customer. The job
+                  comes off the working list and moves to the Archive, where anyone
+                  can still open it and read the work.
+                </p>
+                <p className="muted small">
+                  Nothing is deleted, and you can pull it back out if you archive the
+                  wrong one.
+                </p>
+                <div style={{ height: 10 }} />
+                <button className="btn ok" disabled={busy} onClick={archive}>
+                  {busy ? 'Filing…' : 'Yes, it has been invoiced'}
+                </button>
+                <div style={{ height: 8 }} />
+                <button className="btn ghost" disabled={busy} onClick={() => setArchiving(false)}>
+                  Not yet
+                </button>
+              </div>
+            )}
+          </>
+        )}
+
+        {job.status === 'invoiced' && isOffice && (
+          <>
+            <div style={{ height: 10 }} />
+            <button className="btn ghost" disabled={busy} onClick={unarchive}>
+              {busy ? 'Working…' : '↩ Take back out of the Archive'}
+            </button>
+            <p className="muted small" style={{ marginTop: 4 }}>
+              Puts it back with the completed jobs so it can be corrected and rebilled.
+            </p>
+          </>
+        )}
+
+        <>
+          <div style={{ height: 10 }} />
+          {/* The customer's record of work — no prices, so everyone including
+              the crew can pull it. A splicer needs his own write-up. */}
+          <button className="btn ghost" disabled={dl} onClick={getReport}>
               {dl ? 'Building…' : '📄 Download field report (PDF)'}
             </button>
             <p className="muted small" style={{ marginTop: 4 }}>
@@ -212,7 +281,12 @@ export default function JobRecord() {
               footages, as-found and as-built. No prices; this is the copy for the
               customer.
             </p>
-            {dlErr && <div className="error">{dlErr}</div>}
+          {dlErr && <div className="error">{dlErr}</div>}
+        </>
+
+        {/* Dollars stay office/admin. */}
+        {isOffice && (
+          <>
             <div style={{ height: 10 }} />
             <Link className="btn ghost" to={`/jobs/${id}/invoice`}>View draft invoice</Link>
           </>
