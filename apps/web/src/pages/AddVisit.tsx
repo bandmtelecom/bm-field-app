@@ -5,7 +5,7 @@ import { uploadAttachment } from '../lib/attachments';
 import { useSession } from '../lib/session';
 import { STATUS_FLAGS } from '../lib/types';
 import LocationBlock, { emptyLocation, inferTrayMaterial, LocationForm } from '../components/LocationBlock';
-import { numOrNull, numOr0 } from '../lib/num';
+import { numOrNull, numOr0, splitNames } from '../lib/num';
 
 export default function AddVisit() {
   const { id } = useParams();
@@ -16,7 +16,6 @@ export default function AddVisit() {
   /** Visit saved, but one or more closures could not be registered. */
   const [closureWarn, setClosureWarn] = useState<string[] | null>(null);
   const [visitDate, setVisitDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [techs, setTechs] = useState('');
   const [narrative, setNarrative] = useState('');
   // Default to 'partial_return', never 'complete'. The guys skim past this
   // field, and the safe direction to skim in is "we're coming back".
@@ -43,9 +42,18 @@ export default function AddVisit() {
     const photoQueue: { locationId: string; label: string; files: File[] }[] = [];
     try {
       // 1) the visit
+      //
+      // The crew is recorded per LOCATION now, not here — on 26-352 four men
+      // split between two holes in one night and one visit-level crew billed
+      // every downtime hour against all four. The visit still carries the union
+      // of everybody who worked it, so the job list, the running record and the
+      // field report header keep reading the way they always did. Nothing bills
+      // off this list; the engine reads the location crews.
+      const everyone = splitNames(locations.map((L) => L.techs).filter(Boolean).join(', '));
+
       const { data: visit, error: vErr } = await supabase.from('visits').insert({
         job_id: id, reporter_id: userId, visit_date: visitDate,
-        techs: techs.split(',').map((s) => s.trim()).filter(Boolean),
+        techs: everyone,
         narrative: narrative || null, status_flag: statusFlag,
         lead_hours: numOrNull(leadHours),
       }).select('id').single();
@@ -123,7 +131,8 @@ export default function AddVisit() {
 
         const { data: loc, error: lErr } = await supabase.from('locations').insert({
           visit_id: visit.id, closure_id: closureId, pm_location_no: L.pm_location_no || null,
-          tech_id: userId, hole_ref: L.hole_ref || null, structure_type: L.structure_type,
+          tech_id: userId, techs: splitNames(L.techs),
+          hole_ref: L.hole_ref || null, structure_type: L.structure_type,
           structure_owner: L.structure_owner || null, building_address: L.building_address || null,
           gps_lat: numOrNull(L.gps_lat), gps_lng: numOrNull(L.gps_lng),
           enclosure_new: L.enclosure_new, enclosure_model: L.enclosure_model || null,
@@ -204,13 +213,14 @@ export default function AddVisit() {
             {job?.billing_mode === 'emergency' &&
               <div><label>Hours on site</label><input inputMode="decimal" value={leadHours} onChange={(e) => setLeadHours(e.target.value)} /></div>}
           </div>
-          <label>Techs on job (comma-separated)</label>
-          <input placeholder="Armando, Sal" value={techs} onChange={(e) => setTechs(e.target.value)} />
-          {job?.billing_mode === 'emergency' && (
-            <p className="muted small" style={{ marginTop: 4 }}>
-              List every tech who made the trip — on an LOR each one earns drive time.
-            </p>
-          )}
+          {/* The techs box used to live here. It moved down onto each location:
+              a crew that splits between two holes has to be recorded per hole
+              or standby time bills against men who were somewhere else. */}
+          <p className="muted small" style={{ marginTop: 2 }}>
+            {job?.billing_mode === 'emergency'
+              ? 'Put the crew on each location below. Every man earns drive time on an LOR, and standby bills for each of them.'
+              : 'Put the crew on each location below — standby time bills for every man in the hole.'}
+          </p>
           <label>Job summary / narrative</label>
           <textarea value={narrative} onChange={(e) => setNarrative(e.target.value)} placeholder="What happened, delays, what's left…" />
           <label>Status</label>
@@ -224,7 +234,12 @@ export default function AddVisit() {
             onChange={(v) => setLoc(i, v)}
             onRemove={() => setLocations((p) => p.filter((_, x) => x !== i))} />
         ))}
-        <button className="addline" onClick={() => setLocations((p) => [...p, emptyLocation()])}>＋ Add another location</button>
+        {/* Carry the crew forward. Most nights the same men move hole to hole,
+            so nobody types more than they did when it was one box at the top —
+            they only change it on the hole where they split up. */}
+        <button className="addline" onClick={() => setLocations((p) => [
+          ...p, { ...emptyLocation(), techs: p[p.length - 1]?.techs ?? '' },
+        ])}>＋ Add another location</button>
 
         {err && <div className="error">{err}</div>}
 

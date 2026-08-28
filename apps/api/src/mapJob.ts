@@ -25,7 +25,7 @@ export async function loadJobInput(jobId: string): Promise<JobInput> {
     const { data: locations } = await admin
       .from('locations')
       .select(`
-        id, closure_id, structure_type, hole_ref, gps_lat, gps_lng,
+        id, closure_id, structure_type, hole_ref, gps_lat, gps_lng, techs,
         case_action, new_case_material_code, splice_type, splice_count,
         trays_added, tray_material_code, test_fiber_count, test_type,
         closures ( closure_code )
@@ -65,6 +65,10 @@ export async function loadJobInput(jobId: string): Promise<JobInput> {
         testFiberCount: Number(l.test_fiber_count ?? 0),
         testType: (l.test_type ?? 'otdr') as 'otdr' | 'bare',
         downtimeHours,
+        // the men in THIS hole — downtime bills against them, not the whole
+        // crew that was out that night. Empty on pre-8/28/26 rows; the engine
+        // falls back to the visit crew for those.
+        techs: Array.isArray((l as any).techs) ? ((l as any).techs as string[]) : [],
         extraUnits,
       });
     }

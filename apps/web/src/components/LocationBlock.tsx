@@ -6,11 +6,14 @@ import {
   CASE_MATERIALS, EXTRA_UNITS, inferTrayMaterial,
 } from '../lib/options';
 import { STRUCTURE_LABELS } from '../lib/types';
-import { parseNum } from '../lib/num';
+import { parseNum, splitNames } from '../lib/num';
 import ClosurePicker from './ClosurePicker';
 
 export interface LocationForm {
   pm_location_no: string;
+  /** The men who worked THIS hole, as typed. Downtime bills per tech against
+   *  this list, so when a crew splits up each hole carries its own names. */
+  techs: string;
   structure_type: 'mh' | 'hh' | 'aerial' | 'building';
   structure_owner: string;
   building_address: string;
@@ -43,7 +46,7 @@ export interface LocationForm {
 
 export function emptyLocation(): LocationForm {
   return {
-    pm_location_no: '', structure_type: 'mh', structure_owner: '', building_address: '',
+    pm_location_no: '', techs: '', structure_type: 'mh', structure_owner: '', building_address: '',
     gps_lat: '', gps_lng: '', hole_ref: '', enclosure_new: false, enclosure_model: '',
     case_action: '', new_case_material_code: '', splice_type: '', splice_count: '',
     trays_added: '', test_fiber_count: '', test_type: 'otdr',
@@ -62,6 +65,8 @@ export default function LocationBlock({
 }) {
   const set = (patch: Partial<LocationForm>) => onChange({ ...value, ...patch });
   const isBuilding = value.structure_type === 'building';
+  /** What the app read out of the techs box — shown so nothing gets swallowed. */
+  const crew = splitNames(value.techs);
 
   /** Standard makes + every manufacturer already recorded on a real job. */
   const [seenMfrs, setSeenMfrs] = useState<string[]>([]);
@@ -151,6 +156,29 @@ export default function LocationBlock({
           </select>
         </div>
       </div>
+
+      {/* ---- who was in THIS hole ------------------------------------------
+          The crew used to be one box at the top of the report. On 26-352 four
+          men split between two holes on the same night and the invoice billed
+          every downtime hour against all four. Downtime bills per tech, so the
+          names have to sit with the hole.
+
+          Write them however you write them — "Armando & Josh L", "Armando and
+          Spencer", commas, whatever. The count underneath is the app telling
+          you what it read, so a name that got swallowed is visible before you
+          submit instead of six days later on an invoice. */}
+      <label>Who worked this location</label>
+      <input placeholder="Armando, Josh L" value={value.techs}
+        onChange={(e) => set({ techs: e.target.value })} />
+      {crew.length > 0 ? (
+        <p className="small" style={{ marginTop: 4, color: 'var(--ok)' }}>
+          {crew.length} tech{crew.length === 1 ? '' : 's'}: {crew.join(' · ')}
+        </p>
+      ) : (
+        <p className="muted small" style={{ marginTop: 4 }}>
+          Every man in this hole. Standby time bills for each of them.
+        </p>
+      )}
 
       {isBuilding && (
         <>

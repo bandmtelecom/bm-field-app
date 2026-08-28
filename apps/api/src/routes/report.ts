@@ -41,7 +41,7 @@ report.get('/jobs/:id/report.pdf', async (req, res) => {
       .select(`
         id, visit_date, report_type, techs, narrative, status_flag,
         locations(
-          id, pm_location_no, structure_type, structure_owner, building_address,
+          id, pm_location_no, techs, structure_type, structure_owner, building_address,
           gps_lat, gps_lng, enclosure_new, enclosure_model, case_action,
           splice_type, splice_count, trays_added, test_fiber_count, test_type,
           as_found, as_built, narrative, ordinal,
@@ -75,6 +75,7 @@ report.get('/jobs/:id/report.pdf', async (req, res) => {
         locations: byOrd(v.locations).map((l: any) => ({
           closureCode: l.closures?.closure_code ?? null,
           pmLocationNo: l.pm_location_no ?? null,
+          techs: (Array.isArray(l.techs) && l.techs.length ? l.techs : (v.techs ?? [])) as string[],
           structureType: l.structure_type ?? null,
           structureOwner: l.structure_owner ?? null,
           buildingAddress: l.building_address ?? null,

@@ -148,31 +148,44 @@ describe('downtime (capital)', () => {
 });
 
 describe('trays / materials', () => {
-  it('2 trays → ADD_TRAY ×2 + tray material ×2', () => {
+  // Austin, 8/18: every tray is unit 1 ADD_TRAY + unit 173 TRAY_72_600D, whatever
+  // the enclosure. This test used to expect the tray the tech's enclosure implied
+  // (TRAY_600D_48) and has been failing on main ever since that rule landed —
+  // `trayMaterialCode` is now recorded and deliberately not priced.
+  it('2 trays → ADD_TRAY ×2 + unit 173 tray material ×2, whatever the enclosure', () => {
     const d = computeInvoice(capitalJob([
       loc({ id: 'a', spliceType: 'single', spliceCount: 6,
             traysAdded: 2, trayMaterialCode: 'TRAY_600D_48' }),
     ]));
     expect(lineFor(d, 'ADD_TRAY')[0].quantity).toBe(2);
-    expect(lineFor(d, 'TRAY_600D_48')[0].quantity).toBe(2);
+    expect(lineFor(d, 'TRAY_72_600D')[0].quantity).toBe(2);
+    expect(lineFor(d, 'TRAY_600D_48')).toHaveLength(0);
+    // 2 × ($20.75 + $26.402175) = $94.30
+    expect(totalOf(d, 'ADD_TRAY') + totalOf(d, 'TRAY_72_600D')).toBeCloseTo(94.30, 2);
   });
 });
 
-describe('emergency / LOR jobs bill hourly', () => {
-  it('SPLICER_FIBER × hours, and NO per-unit splice lines', () => {
+describe('emergency / LOR jobs bill the same units as capital', () => {
+  // Austin, 8/18: "an LOR is not hourly-only." It bills every setup, re-enter,
+  // splice, tray, case and extra, exactly like capital. What is different is the
+  // hours: unit 223 covers travel and downtime, and on-site WORKING time never
+  // bills hourly on either job type — the units cover it. This test used to
+  // assert the opposite and has been failing on main since that rule landed.
+  it('units bill, and the lead-tech hours do NOT bill on top of them', () => {
     const job: JobInput = {
       bmNumber: '26-298', billingMode: 'emergency',
       visits: [
-        { id: 'v1', date: '2026-07-03', leadHours: 7,
+        { id: 'v1', date: '2026-07-03', leadHours: 7, techs: ['Armando'],
           locations: [loc({ id: 'a', structureType: 'mh', spliceType: 'single', spliceCount: 24 })] },
       ],
     };
     const d = computeInvoice(job);
-    const l = lineFor(d, 'SPLICER_FIBER')[0];
-    expect(l.quantity).toBe(7);
-    expect(l.extended).toBe(875);                 // 7 × 125
-    expect(lineFor(d, 'FUSION_13_24')).toHaveLength(0);
-    expect(lineFor(d, 'SETUP_MH')).toHaveLength(0);
+    expect(lineFor(d, 'FUSION_13_24')).toHaveLength(1);
+    expect(lineFor(d, 'SETUP_MH')).toHaveLength(1);
+    // the only hours are the travel: 2 hr for the one man who rolled out.
+    // 7 hours of working time buys nothing extra.
+    expect(lineFor(d, 'SPLICER_FIBER')).toHaveLength(1);
+    expect(lineFor(d, 'SPLICER_FIBER')[0].quantity).toBe(2);
   });
 
   it('materials still bill on an emergency job', () => {
@@ -369,15 +382,34 @@ describe('emergency / LOR billing', () => {
     expect(lineFor(d, 'DOWNTIME_CAPITAL')[0].quantity).toBe(7);   // 2x3 + 1x1
   });
 
-  it('three nights with two techs = 12 travel hours', () => {
+  // Travel is 2 hr a man for the CUT, not for every report filed. Austin, 8/28,
+  // on 26-352's two 8/21 reports: "8/21 was not another trip it was an added
+  // location." This test used to expect 12 hours (3 reports × 2 techs × 2 hr),
+  // which billed two drive-outs that never happened.
+  it('three reports, same two men, one cut = 4 travel hours', () => {
     const d = computeInvoice({
       bmNumber: '26-349', billingMode: 'emergency',
       visits: [1, 2, 3].map(i => ({
         id: `v${i}`, date: `2026-08-1${i}`, techs: ['Armando', 'Sal'],
-        locations: [loc({ id: `a${i}`, closureCode: `Lumen-005${i}`, spliceType: 'single', spliceCount: 12 })],
+        locations: [loc({ id: `a${i}`, closureCode: `Lumen-005${i}`, techs: ['Armando', 'Sal'],
+                         spliceType: 'single', spliceCount: 12 })],
       })),
     });
-    expect(lineFor(d, 'SPLICER_FIBER')[0].quantity).toBe(12);
+    expect(lineFor(d, 'SPLICER_FIBER')[0].quantity).toBe(4);
+  });
+
+  it('a fourth man who only showed up on the last night still earns his 2 hours', () => {
+    const d = computeInvoice({
+      bmNumber: '26-350', billingMode: 'emergency',
+      visits: [
+        { id: 'v1', date: '2026-08-11', techs: ['Armando', 'Sal'],
+          locations: [loc({ id: 'a', techs: ['Armando', 'Sal'], spliceType: 'single', spliceCount: 12 })] },
+        { id: 'v2', date: '2026-08-12', techs: ['Armando', 'Jesus'],
+          locations: [loc({ id: 'b', techs: ['Armando', 'Jesus'], spliceType: 'single', spliceCount: 12 })] },
+      ],
+    });
+    // three distinct men on the cut — Armando does not earn it twice
+    expect(lineFor(d, 'SPLICER_FIBER')[0].quantity).toBe(6);
   });
 
   it('on-site hours do NOT bill on top of the units', () => {
@@ -435,5 +467,122 @@ describe('trays', () => {
     // the old guessed material rows must not appear
     expect(lineFor(d, 'TRAY_450B_24')).toHaveLength(0);
     expect(lineFor(d, 'TRAY_600D_48')).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The crew belongs to the HOLE (8/28/26)
+//
+// 26-352, night of 8/21: Armando and Spencer were in Lumen-0016 while Jesus and
+// Josh L were in Lumen-0017. Downtime bills per tech. Multiplying every hole by
+// the whole visit crew billed 7.5 standby hours against four men when two were
+// standing there.
+// ---------------------------------------------------------------------------
+describe('downtime bills against the men in that hole', () => {
+  it('4 hrs with 2 techs = 8 tech-hours', () => {
+    const d = computeInvoice(capitalJob([
+      loc({ id: 'a', techs: ['Armando', 'Spencer'], downtimeHours: 4 }),
+    ]));
+    expect(lineFor(d, 'DOWNTIME_CAPITAL')[0].quantity).toBe(8);
+    expect(totalOf(d, 'DOWNTIME_CAPITAL')).toBe(1000);   // 8 × $125
+  });
+
+  it('two crews splitting one night bill their OWN holes, not each others', () => {
+    const d = computeInvoice({
+      bmNumber: '26-352', billingMode: 'capital',
+      visits: [{
+        id: 'v1', date: '2026-08-21', techs: ['Armando', 'Spencer', 'Jesus', 'Josh L'],
+        locations: [
+          loc({ id: 'l16', closureCode: 'Lumen-0016', techs: ['Armando', 'Spencer'],
+                downtimeHours: 7.5 }),
+          loc({ id: 'l17', closureCode: 'Lumen-0017', techs: ['Jesus', 'Josh L'],
+                downtimeHours: 0 }),
+        ],
+      }],
+    });
+    // 7.5 × the TWO men in that hole = 15. Billing it against all four gives 30.
+    expect(lineFor(d, 'DOWNTIME_CAPITAL')[0].quantity).toBe(15);
+  });
+
+  it('a location with no crew of its own falls back to the visit (pre-8/28 rows)', () => {
+    const d = computeInvoice({
+      bmNumber: '26-300', billingMode: 'capital',
+      visits: [{
+        id: 'v1', date: '2026-08-01', techs: ['Armando', 'Sal'],
+        locations: [loc({ id: 'a', downtimeHours: 3 })],
+      }],
+    });
+    expect(lineFor(d, 'DOWNTIME_CAPITAL')[0].quantity).toBe(6);
+  });
+
+  it('nobody named still counts as one man, never zero', () => {
+    const d = computeInvoice(capitalJob([loc({ id: 'a', downtimeHours: 4 })]));
+    expect(lineFor(d, 'DOWNTIME_CAPITAL')[0].quantity).toBe(4);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 26-352 itself — the job that found all of this. The hours the draft must show.
+// ---------------------------------------------------------------------------
+describe('26-352 regression — the LOR that billed half a crew', () => {
+  const job352 = (): JobInput => ({
+    bmNumber: '26-352', billingMode: 'emergency',
+    visits: [
+      // 8/20 — found the damage, then waited on construction
+      { id: 'v1', date: '2026-08-20', techs: ['Armando', 'Josh L'],
+        locations: [loc({ id: 'entry', structureType: 'mh', caseAction: 'reenter',
+                          techs: ['Armando', 'Josh L'], downtimeHours: 7.5 })] },
+      // 8/21 — the DWDM find; Lumen-0018 midsheath
+      { id: 'v2', date: '2026-08-21', techs: ['Armando', 'Spencer'],
+        locations: [loc({ id: 'l18', closureCode: 'Lumen-0018', caseAction: 'midsheath',
+                          techs: ['Armando', 'Spencer'], spliceType: 'ribbon', spliceCount: 6,
+                          traysAdded: 1, downtimeHours: 1.5 })] },
+      // 8/21 — the added locations, two crews split between two holes
+      { id: 'v3', date: '2026-08-21', techs: ['Armando', 'Spencer', 'Jesus', 'Josh L'],
+        locations: [
+          loc({ id: 'l16', closureCode: 'Lumen-0016', caseAction: 'new_case',
+                newCaseMaterialCode: 'CASE_UG_D_1130', techs: ['Armando', 'Spencer'],
+                spliceType: 'single', spliceCount: 156, traysAdded: 3, downtimeHours: 7.5 }),
+          loc({ id: 'l17', closureCode: 'Lumen-0017', caseAction: 'new_case',
+                newCaseMaterialCode: 'CASE_UG_D_1130', techs: ['Jesus', 'Josh L'],
+                spliceType: 'single', spliceCount: 156, traysAdded: 4 }),
+        ] },
+    ],
+  });
+
+  it('downtime = 33 tech-hours (15 + 3 + 15), not 18', () => {
+    const d = computeInvoice(job352());
+    const downtime = lineFor(d, 'SPLICER_FIBER').find(l => l.source.startsWith('Downtime'));
+    expect(downtime!.quantity).toBe(33);
+    expect(downtime!.extended).toBe(4125);           // 33 × $125
+  });
+
+  it('travel = 8 hours — 2 hr each for four men on one cut, not per report', () => {
+    const d = computeInvoice(job352());
+    const travel = lineFor(d, 'SPLICER_FIBER').find(l => l.source.startsWith('Travel'));
+    expect(travel!.quantity).toBe(8);
+    expect(travel!.extended).toBe(1000);
+  });
+
+  it('unit 223 comes to 41 hours / $5,125 across the two lines', () => {
+    const d = computeInvoice(job352());
+    expect(totalOf(d, 'SPLICER_FIBER')).toBe(5125);
+  });
+
+  it('the units still bill — an LOR is not hourly-only', () => {
+    const d = computeInvoice(job352());
+    expect(lineFor(d, 'SETUP_MH')).toHaveLength(4);          // one per hole per visit
+    expect(lineFor(d, 'FUSION_145_288')).toHaveLength(2);    // 156 splices, twice
+    expect(lineFor(d, 'CASE_NEW')).toHaveLength(2);
+    expect(lineFor(d, 'PREP_MIDSHEATH')).toHaveLength(1);
+    expect(totalOf(d, 'ADD_TRAY')).toBeCloseTo(8 * 20.75, 2); // 1 + 3 + 4 trays
+  });
+
+  it('scheduled-ahead kills the travel but never the downtime', () => {
+    const d = computeInvoice({ ...job352(), scheduledAhead: true });
+    const travel = lineFor(d, 'SPLICER_FIBER').find(l => l.source.startsWith('Travel'));
+    const downtime = lineFor(d, 'SPLICER_FIBER').find(l => l.source.startsWith('Downtime'));
+    expect(travel).toBe(undefined);
+    expect(downtime!.quantity).toBe(33);
   });
 });

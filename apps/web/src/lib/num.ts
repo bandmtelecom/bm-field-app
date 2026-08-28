@@ -51,3 +51,44 @@ export function footageLabel(v: unknown): string {
 
 /** True when the box has text in it but no number anywhere — for a warn-before-save. */
 export const isUnreadableNum = (s: unknown): boolean => parseNum(s) === undefined;
+
+/**
+ * Names of the crew, out of one box, however the man chose to write them.
+ *
+ * Same lesson as the number boxes, and it cost real money before anyone caught
+ * it. The old code did `techs.split(',')`, so on 26-352 Armando typed
+ * "Armando & Josh L" and the app stored ONE name. Downtime and travel both bill
+ * per tech, so a two-man crew billed as one man: 7.5 hours of standby went out
+ * at half. Nothing on screen looked wrong.
+ *
+ * The crew writes "Armando & Josh L", "Armando and Spencer", "Armando + Sal",
+ * "Armando/Sal". All of those are two men. Read them.
+ *
+ * Names with a space in them ("Josh L", "Billy Ray") survive — the only things
+ * treated as separators are , & + / and the word "and". "Alexander" keeps its
+ * middle because \b requires a word boundary on both sides.
+ *
+ * Duplicates collapse case-insensitively, keeping the first spelling typed, so
+ * "armando, Armando" is one man on the invoice and not two.
+ */
+export function splitNames(s: unknown): string[] {
+  const raw = s == null ? '' : String(s);
+  const parts = raw
+    .split(/\s*(?:,|&|\+|\/|\band\b)\s*/i)
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const p of parts) {
+    const key = p.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(p);
+  }
+  return out;
+}
+
+/** The crew back in one line for a text box. */
+export const joinNames = (names: unknown): string =>
+  (Array.isArray(names) ? names : []).map((n) => String(n).trim()).filter(Boolean).join(', ');

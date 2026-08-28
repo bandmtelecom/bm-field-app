@@ -41,6 +41,9 @@ export interface ReportDowntime { hours: number | null; reason: string | null; }
 export interface ReportLocation {
   closureCode: string | null;
   pmLocationNo: string | null;
+  /** The crew in THIS hole. Empty on reports filed before 8/28/26, when the
+   *  names were kept once per visit — those fall back to the visit crew. */
+  techs: string[];
   structureType: string | null;
   structureOwner: string | null;
   buildingAddress: string | null;
@@ -149,6 +152,17 @@ function tidyNames(names: string[]): string[] {
     if (!existing || (/^[a-z]/.test(existing) && /^[A-Z]/.test(n))) best.set(key, n);
   }
   return [...best.values()].map((n) => n.charAt(0).toUpperCase() + n.slice(1));
+}
+
+/**
+ * Everybody on one report. The crew lives on the location since 8/28/26 — a
+ * night where two pairs split between two holes has two crews under one visit —
+ * so the visit's crew is the union of its locations, falling back to the old
+ * visit-level list for reports filed before the change.
+ */
+function crewOfVisit(v: ReportVisit): string[] {
+  const fromLocations = v.locations.flatMap((l) => l.techs ?? []);
+  return fromLocations.length ? fromLocations : (v.techs ?? []);
 }
 
 export function buildFieldReport(
@@ -342,7 +356,9 @@ export function buildFieldReport(
     : null);
   field('Visits', job.visits.length);
   field('Locations', job.visits.reduce((s, v) => s + v.locations.length, 0));
-  field('Technicians', tidyNames(job.visits.flatMap((v) => v.techs)).join(', '));
+  // Everybody who worked the job. The crew is recorded per location since
+  // 8/28/26, so gather from there and fall back to the visit for older reports.
+  field('Technicians', tidyNames(job.visits.flatMap(crewOfVisit)).join(', '));
 
   doc.y += 6;
 
@@ -356,7 +372,7 @@ export function buildFieldReport(
       .text(`Visit ${vi + 1} — ${niceDate(v.date)}`, M.left + 9, y + 7, {
         width: W * 0.55, lineBreak: false,
       });
-    const crew = tidyNames(v.techs).join(', ');
+    const crew = tidyNames(crewOfVisit(v)).join(', ');
     if (crew) {
       doc.font('Helvetica').fontSize(8.5).fillColor(MUTED)
         .text(crew, M.left + W * 0.55, y + 8, {
@@ -392,6 +408,10 @@ export function buildFieldReport(
       doc.y += 6;
       doc.fillColor(TEXT);
 
+      // Who was in this hole. On a night where the crew splits between two
+      // closures the customer's record should say which men were where.
+      const holeCrew = tidyNames(l.techs ?? []).join(', ');
+      if (holeCrew && holeCrew !== crew) field('Crew', holeCrew);
       field('Address', l.buildingAddress);
       if (l.gpsLat != null && l.gpsLng != null) field('GPS', `${l.gpsLat}, ${l.gpsLng}`);
       field('Enclosure', [l.enclosureModel, l.enclosureNew ? '(new)' : null]

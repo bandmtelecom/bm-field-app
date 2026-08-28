@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
 import LocationBlock, { emptyLocation, inferTrayMaterial, type LocationForm } from '../components/LocationBlock';
-import { numOrNull, numOr0 } from '../lib/num';
+import { numOrNull, numOr0, splitNames, joinNames } from '../lib/num';
 
 const str = (v: unknown) => (v == null ? '' : String(v));
 
@@ -27,6 +27,7 @@ export default function EditLocation() {
 
   const [form, setForm] = useState<LocationForm | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [visitId, setVisitId] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [meta, setMeta] = useState<{ visitDate?: string; bm?: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -45,13 +46,14 @@ export default function EditLocation() {
           panel_ports(panel, port, position, pass_fail, ordinal),
           downtime(hours, reason, ordinal),
           location_units(unit_code, qty, ordinal),
-          visits(id, visit_date, job_id, jobs(bm_number, customer_id))
+          visits(id, visit_date, job_id, techs, jobs(bm_number, customer_id))
         `)
         .eq('id', id).single();
       if (!l) { setErr('That location is gone.'); return; }
 
       const a: any = l;
       setJobId(a.visits?.job_id ?? null);
+      setVisitId(a.visits?.id ?? null);
       setCustomerId(a.visits?.jobs?.customer_id ?? null);
       setMeta({ visitDate: a.visits?.visit_date, bm: a.visits?.jobs?.bm_number });
 
@@ -61,6 +63,11 @@ export default function EditLocation() {
       setForm({
         ...emptyLocation(),
         pm_location_no: str(a.pm_location_no),
+        // Pre-0011 rows have no crew of their own; fall back to whoever the
+        // visit said was out, so the office sees names rather than an empty box.
+        techs: joinNames(
+          (Array.isArray(a.techs) && a.techs.length ? a.techs : a.visits?.techs) ?? [],
+        ),
         structure_type: a.structure_type ?? 'mh',
         structure_owner: str(a.structure_owner),
         building_address: str(a.building_address),
@@ -140,6 +147,7 @@ export default function EditLocation() {
 
       const { error: uErr } = await supabase.from('locations').update({
         closure_id: closureId, pm_location_no: form.pm_location_no || null,
+        techs: splitNames(form.techs),
         hole_ref: form.hole_ref || null, structure_type: form.structure_type,
         structure_owner: form.structure_owner || null,
         building_address: form.building_address || null,
@@ -175,6 +183,21 @@ export default function EditLocation() {
           ordinal: i,
         })));
 
+      // Keep the visit's crew list as the union of its locations, so the running
+      // record and the field-report header still name everybody who was out
+      // that night. Nothing bills off it — the engine reads the location crews —
+      // so a failure here is cosmetic and must not lose the correction above.
+      if (visitId) {
+        const { data: sibs } = await supabase
+          .from('locations').select('techs').eq('visit_id', visitId);
+        const everyone = splitNames(
+          (sibs ?? []).flatMap((r: any) => (Array.isArray(r.techs) ? r.techs : [])).join(', '),
+        );
+        const { error: vErr } = await supabase
+          .from('visits').update({ techs: everyone }).eq('id', visitId);
+        if (vErr) console.error('could not refresh the visit crew list', vErr);
+      }
+
       nav(jobId ? `/jobs/${jobId}` : '/');
     } catch (e: any) {
       setErr(e.message ?? 'Could not save the change.');
@@ -199,7 +222,8 @@ export default function EditLocation() {
           <h2>Edit this location</h2>
           <p className="muted small">
             From the visit on {meta?.visitDate ?? '—'}. Change whatever needs fixing and save.
-            The visit date, techs and job summary are not changed here.
+            That includes the crew — the names on this location are what standby
+            time bills against. The visit date is not changed here.
           </p>
           {form.closure_code && (
             <p className="small" style={{ color: 'var(--ok)' }}>

@@ -6,7 +6,7 @@ import {
   singleFusionBand, ribbonBand, otdrTestBand, bareTestBand,
 } from './bands.js';
 import type {
-  JobInput, LocationInput, InvoiceLine, InvoiceDraft, StructureType,
+  JobInput, VisitInput, LocationInput, InvoiceLine, InvoiceDraft, StructureType,
 } from './types.js';
 
 const FIBER_MIN = 6;          // 6-fiber minimum per enclosure
@@ -50,6 +50,56 @@ function jobHasSplicing(job: JobInput): boolean {
     v.locations.some(l => !!l.spliceType && (l.spliceCount ?? 0) > 0));
 }
 
+/**
+ * The men who worked one hole.
+ *
+ * 26-352, night of 8/21: Armando and Spencer were in Lumen-0016 while Jesus and
+ * Josh L were in Lumen-0017. Downtime bills per tech, so multiplying every hole
+ * by the whole visit crew billed 7.5 standby hours against four men when two
+ * were standing there — about $1,900 wrong on one job.
+ *
+ * Locations filed before 8/28/26 have no crew of their own; those fall back to
+ * the visit, which is exactly how they billed when they were filed.
+ */
+function crewAt(loc: LocationInput, visit: VisitInput): string[] {
+  if (loc.techs?.length) return loc.techs;
+  return visit.techs ?? [];
+}
+
+/** Nobody can work a hole with no men in it — an unnamed crew still counts as one. */
+const crewSize = (names: string[]): number => Math.max(names.length, 1);
+
+/**
+ * Every distinct man who worked the job, however his name was capitalised.
+ *
+ * Travel is 2 hr a man for the roll-out (1 hr there, 1 hr back) and it is earned
+ * ONCE, per man, per cut — not per report filed. Austin, 8/28, on the two 8/21
+ * reports: "8/21 was not another trip it was an added location." Counting per
+ * visit row billed a second drive-out that never happened.
+ */
+function techsOnJob(job: JobInput): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const v of job.visits) {
+    for (const loc of v.locations) {
+      for (const name of crewAt(loc, v)) {
+        const key = name.trim().toLowerCase();
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        out.push(name.trim());
+      }
+    }
+    // a report with no locations on it still had men on the trip
+    for (const name of v.techs ?? []) {
+      const key = name.trim().toLowerCase();
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      out.push(name.trim());
+    }
+  }
+  return out;
+}
+
 export function computeInvoice(job: JobInput): InvoiceDraft {
   const lines: InvoiceLine[] = [];
 
@@ -59,35 +109,38 @@ export function computeInvoice(job: JobInput): InvoiceDraft {
   //   capital    → downtime bills as unit 76 DOWNTIME - CAPITAL PROJECT,
   //                $125/hr, entered on the rate card as dollars
   //   emergency  → unit 223 SPLICER - FIBER ($125/hr), which ALSO covers travel:
-  //                1 hr out + 1 hr back, PER TECH, per trip
+  //                1 hr out + 1 hr back, PER TECH, per cut
   //
-  // Downtime is PER TECH on both: 2 hr with 3 techs = 6 billable hours.
-  // On-site WORKING time does NOT bill hourly — the units cover it.
+  // Downtime is PER TECH on both: 2 hr with 3 techs = 6 billable hours, counted
+  // against the men in THAT hole. On-site WORKING time does NOT bill hourly —
+  // the units cover it.
   //
   // Unit 223 is emergency/LOR only; unit 76 is capital only. They never mix.
   const isEmergency = job.billingMode === 'emergency';
   const hasSplicing = jobHasSplicing(job);
-  let downtimeHours = 0;       // capital: raw hours · emergency: hours × techs
-  let travelHours = 0;
-  let techTrips = 0;           // for the invoice description
+  let downtimeHours = 0;       // raw hours × the crew standing at each hole
+  let rawDowntime = 0;         // the hours as the crew logged them, for the audit line
 
   // Drive time is only earned when B&M rolls out on the call. If the customer's
   // tech scheduled it a day or two out, no travel hours — but downtime on site
   // still bills under 223.
   const billsTravel = isEmergency && job.scheduledAhead !== true;
 
+  // 2 hr for each man who rolled out on the cut, counted once for the job. Two
+  // reports filed on one night are two locations, not two drive-outs.
+  const jobCrew = techsOnJob(job);
+  const travelHours = billsTravel ? TRAVEL_HOURS_PER_TECH * crewSize(jobCrew) : 0;
+
   for (const v of job.visits) {
-    // a visit can't happen with nobody on it — never count fewer than one tech
-    const techCount = Math.max(v.techs?.length ?? 0, 1);
-    if (billsTravel) {
-      travelHours += TRAVEL_HOURS_PER_TECH * techCount;
-      techTrips += techCount;
+    // Downtime bills for EVERY tech standing on it, on capital and LOR alike,
+    // and only for the men who were actually in that hole. A crew that splits
+    // between two closures the same night bills each hole against its own men.
+    for (const l of v.locations) {
+      const hrs = l.downtimeHours ?? 0;
+      if (!hrs) continue;
+      rawDowntime += hrs;
+      downtimeHours += hrs * crewSize(crewAt(l, v));
     }
-    // Downtime bills for EVERY tech standing on it, on capital and LOR alike:
-    // 2 hr of downtime with 3 techs is 6 billable hours. Counted per visit so a
-    // job worked by different crews on different nights comes out right.
-    const visitDowntime = v.locations.reduce((s, l) => s + (l.downtimeHours ?? 0), 0);
-    downtimeHours += visitDowntime * techCount;
     // one setup per hole per visit
     const seenHoles = new Set<string>();
     for (const loc of v.locations) {
@@ -172,22 +225,19 @@ export function computeInvoice(job: JobInput): InvoiceDraft {
     // sums them back onto the one row.
     if (travelHours > 0) {
       const h = round2(travelHours);
+      const who = jobCrew.length ? jobCrew.join(', ') : 'crew not named';
       lines.push(line('SPLICER_FIBER', h, rate('SPLICER_FIBER'),
-        `Travel — ${TRAVEL_HOURS_PER_TECH} hr per tech per trip × ${techTrips} tech-trip(s)`));
+        `Travel — ${TRAVEL_HOURS_PER_TECH} hr per tech on the cut × ${crewSize(jobCrew)} tech(s): ${who}`));
     }
     if (downtimeHours > 0) {
       const h = round2(downtimeHours);
-      const raw = round2(job.visits.reduce(
-        (s, v) => s + v.locations.reduce((t, l) => t + (l.downtimeHours ?? 0), 0), 0));
       lines.push(line('SPLICER_FIBER', h, rate('SPLICER_FIBER'),
-        `Downtime — ${raw} hr on site × the crew standing on it = ${h} tech-hour(s)`));
+        `Downtime — ${round2(rawDowntime)} hr on site × the crew in each hole = ${h} tech-hour(s)`));
     }
   } else if (downtimeHours > 0) {
     const h = round2(downtimeHours);
-    const raw = round2(job.visits.reduce(
-      (s, v) => s + v.locations.reduce((t, l) => t + (l.downtimeHours ?? 0), 0), 0));
     lines.push(line('DOWNTIME_CAPITAL', h, DOWNTIME_RATE,
-      `Downtime — ${raw} hr on site × the crew standing on it = ${h} tech-hour(s) × $${DOWNTIME_RATE}/hr`));
+      `Downtime — ${round2(rawDowntime)} hr on site × the crew in each hole = ${h} tech-hour(s) × $${DOWNTIME_RATE}/hr`));
   }
 
   return finalize(job, lines);

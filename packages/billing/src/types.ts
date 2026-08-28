@@ -28,6 +28,10 @@ export interface LocationInput {
   testFiberCount?: number;          // # fibers shot/tested (only bills on test-only jobs)
   testType?: TestType;              // default 'otdr'
   downtimeHours?: number;           // total downtime logged at this location
+  /** The men who worked THIS hole. Downtime bills per tech against this list.
+   *  Empty on rows filed before 8/28/26 — the engine falls back to the visit
+   *  crew for those. See the note on downtime in engine.ts. */
+  techs?: string[];
   newCaseMaterialCode?: string;     // rate_card.code for the physical case, when new_case
   traysAdded?: number;
   trayMaterialCode?: string;        // inferred from enclosure + single/ribbon
@@ -40,8 +44,11 @@ export interface VisitInput {
   /** Lead-tech clocker hours. Recorded for the job history; does NOT bill —
    *  the units cover on-site working time on capital AND emergency jobs. */
   leadHours?: number;
-  /** Names/initials of the techs on this trip. On an LOR each one earns
-   *  2 travel hours (1 out, 1 back) under unit 223 SPLICER - FIBER. */
+  /** Everybody who worked this report. Kept as history and as the fallback
+   *  crew for locations filed before the crew moved onto the location (8/28/26).
+   *  Travel is counted from the distinct techs across the whole job, not from
+   *  this list per visit — a crew that files two reports in one night made one
+   *  trip, not two. */
   techs?: string[];
   locations: LocationInput[];
 }

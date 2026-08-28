@@ -3,13 +3,13 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
 import { markJobComplete, downloadFieldReport, reopenJob, markJobInvoiced, unarchiveJob } from '../lib/api';
-import { STRUCTURE_LABELS } from '../lib/types';
+import { STRUCTURE_LABELS, STATUS_FLAGS } from '../lib/types';
 import LocationDetail from '../components/LocationDetail';
 
 // Every column the read-only detail panel needs, pulled in one query with the
 // visit so tapping a location is instant (child tables load on demand).
 const LOCATION_COLS = `
-  id, pm_location_no, hole_ref, structure_type, structure_owner, building_address,
+  id, pm_location_no, techs, hole_ref, structure_type, structure_owner, building_address,
   gps_lat, gps_lng, enclosure_new, enclosure_model, case_action, new_case_material_code,
   splice_type, splice_count, trays_added, tray_material_code,
   test_fiber_count, test_type, as_found, as_built, narrative, ordinal,
@@ -31,6 +31,14 @@ export default function JobRecord() {
   const [archiving, setArchiving] = useState(false);
   const [dl, setDl] = useState(false);
   const [dlErr, setDlErr] = useState<string | null>(null);
+  /** Office fixing a filed report: which visit is open, and the working copy.
+   *  Before this the summary and status were frozen the moment a tech hit
+   *  submit, and a typo meant a trip into the database. */
+  const [editVisit, setEditVisit] = useState<string | null>(null);
+  const [vDraft, setVDraft] = useState<{ narrative: string; status_flag: string }>(
+    { narrative: '', status_flag: '' });
+  const [vBusy, setVBusy] = useState(false);
+  const [vErr, setVErr] = useState<string | null>(null);
 
   async function load() {
     const { data: j } = await supabase.from('jobs')
@@ -57,6 +65,26 @@ export default function JobRecord() {
       await load();
     } catch (e: any) { setMsg(e.message); }
     setBusy(false);
+  }
+
+  function startEditVisit(v: any) {
+    setVErr(null);
+    setVDraft({ narrative: v.narrative ?? '', status_flag: v.status_flag ?? '' });
+    setEditVisit(v.id);
+  }
+
+  async function saveVisit(visitId: string) {
+    setVBusy(true); setVErr(null);
+    const { error } = await supabase.from('visits').update({
+      narrative: vDraft.narrative.trim() || null,
+      status_flag: vDraft.status_flag || null,
+    }).eq('id', visitId);
+    setVBusy(false);
+    // Never swallow this. A silent failure here is how the office ends up
+    // believing a correction landed when it never did.
+    if (error) { setVErr(error.message); return; }
+    setEditVisit(null);
+    await load();
   }
 
   async function getReport() {
@@ -143,7 +171,42 @@ export default function JobRecord() {
                 {v.report_type && v.report_type !== 'splice' && <span className="pill">{v.report_type.replace(/_/g, ' ')}</span>}
                 {v.lead_hours ? <span className="pill">{v.lead_hours} hr</span> : null}
               </div>
-              {v.narrative && <p className="small" style={{ marginTop: 8 }}>{v.narrative}</p>}
+              {editVisit === v.id ? (
+                <div className="card" style={{ borderColor: 'var(--accent)', marginTop: 8 }}>
+                  <label>Status</label>
+                  <select value={vDraft.status_flag}
+                    onChange={(e) => setVDraft({ ...vDraft, status_flag: e.target.value })}>
+                    <option value="">—</option>
+                    {STATUS_FLAGS.map(([val, l]) => <option key={val} value={val}>{l}</option>)}
+                  </select>
+                  <label>Job summary / narrative</label>
+                  <textarea value={vDraft.narrative}
+                    onChange={(e) => setVDraft({ ...vDraft, narrative: e.target.value })} />
+                  <p className="muted small" style={{ marginTop: 4 }}>
+                    This is what the customer reads on the field report. The crew
+                    is set on each location below, not here.
+                  </p>
+                  {vErr && <div className="error">{vErr}</div>}
+                  <div style={{ height: 8 }} />
+                  <button className="btn ok" disabled={vBusy} onClick={() => saveVisit(v.id)}>
+                    {vBusy ? 'Saving…' : 'Save the report'}
+                  </button>
+                  <div style={{ height: 8 }} />
+                  <button className="btn ghost" disabled={vBusy} onClick={() => setEditVisit(null)}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {v.narrative && <p className="small" style={{ marginTop: 8 }}>{v.narrative}</p>}
+                  {isOffice && (
+                    <button className="addline" style={{ marginTop: 6 }}
+                      onClick={() => startEditVisit(v)}>
+                      ✎ Fix this report
+                    </button>
+                  )}
+                </>
+              )}
 
               {locs.map((l: any) => {
                 const open = openLoc === l.id;
@@ -163,6 +226,14 @@ export default function JobRecord() {
                         {' · '}{STRUCTURE_LABELS[l.structure_type as keyof typeof STRUCTURE_LABELS] ?? l.structure_type}
                         {l.splice_type ? ` · ${l.splice_count} ${l.splice_type}` : ''}
                       </span>
+                      {/* The crew on the hole — this is what standby bills
+                          against, so it belongs where the office can see it
+                          without opening anything. */}
+                      {(l.techs ?? []).length > 0 && (
+                        <span className="small muted" style={{ display: 'block', marginLeft: 14 }}>
+                          👷 {(l.techs as string[]).join(', ')}
+                        </span>
+                      )}
                     </button>
                     {open && <LocationDetail loc={l} />}
                   </div>
