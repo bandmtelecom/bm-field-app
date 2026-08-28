@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { listForLocation, type AttachmentView } from '../lib/attachments';
 import { STRUCTURE_LABELS } from '../lib/types';
 import { DOWNTIME_REASONS, EXTRA_UNITS, CASE_MATERIALS } from '../lib/options';
+import { footageLabel } from '../lib/num';
 
 /**
  * Read-only "what did the guys do here" panel.
@@ -88,7 +89,6 @@ export default function LocationDetail({ loc }: { loc: any }) {
 
   const hasGps = loc.gps_lat != null && loc.gps_lng != null;
   const structure = STRUCTURE_LABELS[loc.structure_type as keyof typeof STRUCTURE_LABELS] ?? loc.structure_type;
-  const totalFootage = (d?.cables ?? []).reduce((s: number, c: any) => s + (Number(c.footage) || 0), 0);
   const totalDowntime = (d?.downtime ?? []).reduce((s: number, x: any) => s + (Number(x.hours) || 0), 0);
 
   return (
@@ -155,7 +155,7 @@ export default function LocationDetail({ loc }: { loc: any }) {
         <>
           {/* --- cables + footages --- */}
           {d.cables.length > 0 && (
-            <Section title={`Cables (${d.cables.length})${totalFootage ? ` · ${totalFootage} ft` : ''}`}>
+            <Section title={`Cables (${d.cables.length})`}>
               <table>
                 <thead><tr><th>Direction</th><th>Cable</th><th className="num">Footage</th></tr></thead>
                 <tbody>
@@ -170,7 +170,7 @@ export default function LocationDetail({ loc }: { loc: any }) {
                           </div>
                         )}
                       </td>
-                      <td className="num">{c.footage ?? '—'}</td>
+                      <td className="num">{footageLabel(c.footage) || '—'}</td>
                     </tr>
                   ))}
                 </tbody>

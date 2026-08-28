@@ -346,8 +346,15 @@ export default function LocationBlock({
                already doing this - the live data has "48F 03-23" and
                "96F JUN2008" crammed into the old count box - so this matches
                how they actually write it down rather than fighting it.
-               `date_code` and `footage` are no longer written; old rows keep
-               theirs and still display. `role` is gone from the form. */
+               `date_code` is no longer written; old rows keep theirs and still
+               display. `role` is gone from the form.
+
+               Footage got its own box back on 8/28 - Austin: "leave the area
+               where the guys put that in as just blank and let them put anything
+               there. that area is just information it has nothing to do with
+               billing." Two crews had skipped footage entirely on 26-363 because
+               nothing on the screen asked for it. It takes any text and is never
+               parsed. */
             <div key={i} className="row" style={{ marginBottom: 6 }}>
               <input list="bm-mfr-list" placeholder="Manufacturer"
                 value={r.manufacturer}
@@ -355,9 +362,12 @@ export default function LocationBlock({
               <input placeholder="Dir" style={{ maxWidth: 70 }}
                 value={r.direction}
                 onChange={(e) => upd(value.cables, i, { direction: e.target.value }, (v) => set({ cables: v }))} />
-              <input placeholder="144F 03-23 51436"
+              <input placeholder="144F 03-23"
                 value={r.count}
                 onChange={(e) => upd(value.cables, i, { count: e.target.value }, (v) => set({ cables: v }))} />
+              <input placeholder="Footage" style={{ maxWidth: 110 }}
+                value={r.footage}
+                onChange={(e) => upd(value.cables, i, { footage: e.target.value }, (v) => set({ cables: v }))} />
             </div>
           )} />
       )}

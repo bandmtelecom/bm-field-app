@@ -36,5 +36,18 @@ export const numOrNull = (s: unknown): number | null => parseNum(s) ?? null;
 /** For NOT NULL billing counters: unreadable or empty both become 0. */
 export const numOr0 = (s: unknown): number => parseNum(s) ?? 0;
 
+/**
+ * Footage is typed free-hand by the crew ("22,590'", "about 15000", "see prints")
+ * and is information only — nothing bills off it. Print it exactly as typed.
+ * The one exception is a bare number, which is how rows before 8/28/26 were
+ * stored back when the column was an integer: those get " ft" appended so old
+ * reports still read the way they always did.
+ */
+export function footageLabel(v: unknown): string {
+  const s = v == null ? '' : String(v).trim();
+  if (!s) return '';
+  return /^[\d,]+$/.test(s) ? `${s} ft` : s;
+}
+
 /** True when the box has text in it but no number anywhere — for a warn-before-save. */
 export const isUnreadableNum = (s: unknown): boolean => parseNum(s) === undefined;

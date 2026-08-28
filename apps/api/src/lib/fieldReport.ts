@@ -14,9 +14,20 @@
  * fit, THEN draw.
  */
 
+/**
+ * Footage is typed free-hand by the crew ("22,590'", "see prints") and is
+ * information only. Print it as typed; a bare number gets " ft" appended, which
+ * is how rows before 8/28/26 were stored when the column was an integer.
+ */
+function footageLabel(v: unknown): string {
+  const s = v == null ? '' : String(v).trim();
+  if (!s) return '';
+  return /^[\d,]+$/.test(s) ? `${s} ft` : s;
+}
+
 export interface ReportCable {
   direction: string | null; count: string | null; manufacturer: string | null;
-  date_code: string | null; footage: number | null; role: string | null;
+  date_code: string | null; footage: string | null; role: string | null;
 }
 export interface ReportShot {
   fiber_group: string | null; direction: string | null;
@@ -399,18 +410,19 @@ export function buildFieldReport(
       field('Notes', l.narrative);
 
       if (l.cables.length) {
-        const ft = l.cables.reduce((s, c) => s + (Number(c.footage) || 0), 0);
-        subhead(`Cables${ft ? ` — ${ft.toLocaleString()} ft total` : ''}`);
-        // The form now takes count, date code and footage as one typed string in
-        // `count`. Rows captured before 8/25 still have them in separate columns,
-        // so compose whatever is present - a report must read correctly for old
-        // jobs and new ones alike. `role` is no longer captured; it is still
-        // shown when an older row has one rather than silently dropping detail
-        // the customer saw on a previous report.
+        subhead('Cables');
+        // Compose whatever is present - a report must read correctly for a row
+        // captured last year and one captured today. `date_code` moved into the
+        // cable line on 8/25; `footage` came back as its own free-text box on
+        // 8/28 and is printed exactly as the tech typed it (a bare number gets
+        // " ft" appended, which is how the old integer rows were stored). There
+        // is no footage total any more - the values are not numbers. `role` is
+        // no longer captured; it is still shown when an older row has one rather
+        // than silently dropping detail the customer saw on a previous report.
         const cableText = (c: typeof l.cables[number]) => [
           c.count ?? '',
           c.date_code ?? '',
-          c.footage != null ? `${Number(c.footage).toLocaleString()} ft` : '',
+          footageLabel(c.footage),
           c.role ?? '',
         ].map((x) => String(x).trim()).filter(Boolean).join('  ');
 

@@ -163,7 +163,7 @@ export default function EditLocation() {
       if (form.shots.length) await supabase.from('shots').insert(
         form.shots.map((s, i) => ({ location_id: id, fiber_group: s.fiber_group || null, direction: s.direction || null, distance_km: numOrNull(s.distance_km), event: s.event || null, ordinal: i })));
       if (form.cables.length) await supabase.from('cables').insert(
-        form.cables.map((c, i) => ({ location_id: id, direction: c.direction || null, count: c.count || null, manufacturer: c.manufacturer || null, date_code: c.date_code || null, footage: numOrNull(c.footage), role: c.role || null, ordinal: i })));
+        form.cables.map((c, i) => ({ location_id: id, direction: c.direction || null, count: c.count || null, manufacturer: c.manufacturer || null, date_code: c.date_code || null, footage: c.footage || null, role: c.role || null, ordinal: i })));
       if (form.panel_ports.length) await supabase.from('panel_ports').insert(
         form.panel_ports.map((p, i) => ({ location_id: id, panel: p.panel || null, port: p.port || null, position: p.position || null, pass_fail: p.pass_fail || null, ordinal: i })));
       if (form.downtimes.length) await supabase.from('downtime').insert(

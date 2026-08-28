@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { footageLabel } from './num';
 
 /**
  * The closure registry — B&M's permanent list of the closures it has worked.
@@ -74,7 +75,7 @@ export interface CableRow {
   count: string | null;
   manufacturer: string | null;
   date_code: string | null;
-  footage: number | null;
+  footage: string | null;
   role: string | null;
 }
 
@@ -262,7 +263,7 @@ export function cableLabel(c: CableRow): string {
   const spec = [
     c.count,
     c.date_code,
-    c.footage ? `${c.footage} ft` : null,
+    footageLabel(c.footage) || null,
     c.role,
   ].map((x) => (x ?? '').toString().trim()).filter(Boolean).join(' · ');
 
