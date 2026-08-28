@@ -5,8 +5,7 @@ import { uploadAttachment } from '../lib/attachments';
 import { useSession } from '../lib/session';
 import { STATUS_FLAGS } from '../lib/types';
 import LocationBlock, { emptyLocation, inferTrayMaterial, LocationForm } from '../components/LocationBlock';
-
-const numOrNull = (s: string) => (s.trim() === '' ? null : Number(s));
+import { numOrNull, numOr0 } from '../lib/num';
 
 export default function AddVisit() {
   const { id } = useParams();
@@ -116,7 +115,7 @@ export default function AddVisit() {
           });
         }
 
-        const trayCode = Number(L.trays_added) > 0
+        const trayCode = numOr0(L.trays_added) > 0
           ? inferTrayMaterial(L.enclosure_model, L.splice_type || null) : null;
 
         const queuedForThisLocation = photoQueue[photoQueue.length - 1];
@@ -129,9 +128,9 @@ export default function AddVisit() {
           gps_lat: numOrNull(L.gps_lat), gps_lng: numOrNull(L.gps_lng),
           enclosure_new: L.enclosure_new, enclosure_model: L.enclosure_model || null,
           case_action: L.case_action || null, new_case_material_code: L.new_case_material_code || null,
-          splice_type: L.splice_type || null, splice_count: Number(L.splice_count) || 0,
-          trays_added: Number(L.trays_added) || 0, tray_material_code: trayCode,
-          test_fiber_count: Number(L.test_fiber_count) || 0, test_type: L.test_type,
+          splice_type: L.splice_type || null, splice_count: numOr0(L.splice_count),
+          trays_added: numOr0(L.trays_added), tray_material_code: trayCode,
+          test_fiber_count: numOr0(L.test_fiber_count), test_type: L.test_type,
           as_found: L.as_found || null, as_built: L.as_built || null, narrative: L.narrative || null,
           ordinal: ord++,
         }).select('id').single();
@@ -147,12 +146,12 @@ export default function AddVisit() {
         if (L.panel_ports.length) await supabase.from('panel_ports').insert(
           L.panel_ports.map((p, i) => ({ location_id: loc.id, panel: p.panel || null, port: p.port || null, position: p.position || null, pass_fail: p.pass_fail || null, ordinal: i })));
         if (L.downtimes.length) await supabase.from('downtime').insert(
-          L.downtimes.map((d, i) => ({ location_id: loc.id, hours: Number(d.hours) || 0, reason: d.reason || null, ordinal: i })));
+          L.downtimes.map((d, i) => ({ location_id: loc.id, hours: numOr0(d.hours), reason: d.reason || null, ordinal: i })));
         if (L.extras.length) await supabase.from('location_units').insert(
           L.extras.map((code, i) => ({
             location_id: loc.id, unit_code: code,
             // per-each extras (CD/PMD) carry the count the tech typed; the rest bill 1
-            qty: Number(L.extra_qty?.[code]) > 0 ? Number(L.extra_qty[code]) : 1,
+            qty: numOr0(L.extra_qty?.[code]) > 0 ? numOr0(L.extra_qty[code]) : 1,
             ordinal: i,
           })));
       }

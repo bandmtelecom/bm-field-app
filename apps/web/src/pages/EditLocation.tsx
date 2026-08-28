@@ -3,8 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
 import LocationBlock, { emptyLocation, inferTrayMaterial, type LocationForm } from '../components/LocationBlock';
+import { numOrNull, numOr0 } from '../lib/num';
 
-const numOrNull = (s: string) => (s.trim() === '' ? null : Number(s));
 const str = (v: unknown) => (v == null ? '' : String(v));
 
 /**
@@ -135,7 +135,7 @@ export default function EditLocation() {
         closureId = closure.id;
       }
 
-      const trayCode = Number(form.trays_added) > 0
+      const trayCode = numOr0(form.trays_added) > 0
         ? inferTrayMaterial(form.enclosure_model, form.splice_type || null) : null;
 
       const { error: uErr } = await supabase.from('locations').update({
@@ -147,9 +147,9 @@ export default function EditLocation() {
         enclosure_new: form.enclosure_new, enclosure_model: form.enclosure_model || null,
         case_action: form.case_action || null,
         new_case_material_code: form.new_case_material_code || null,
-        splice_type: form.splice_type || null, splice_count: Number(form.splice_count) || 0,
-        trays_added: Number(form.trays_added) || 0, tray_material_code: trayCode,
-        test_fiber_count: Number(form.test_fiber_count) || 0, test_type: form.test_type,
+        splice_type: form.splice_type || null, splice_count: numOr0(form.splice_count),
+        trays_added: numOr0(form.trays_added), tray_material_code: trayCode,
+        test_fiber_count: numOr0(form.test_fiber_count), test_type: form.test_type,
         as_found: form.as_found || null, as_built: form.as_built || null,
         narrative: form.narrative || null,
       }).eq('id', id);
@@ -167,11 +167,11 @@ export default function EditLocation() {
       if (form.panel_ports.length) await supabase.from('panel_ports').insert(
         form.panel_ports.map((p, i) => ({ location_id: id, panel: p.panel || null, port: p.port || null, position: p.position || null, pass_fail: p.pass_fail || null, ordinal: i })));
       if (form.downtimes.length) await supabase.from('downtime').insert(
-        form.downtimes.map((d, i) => ({ location_id: id, hours: Number(d.hours) || 0, reason: d.reason || null, ordinal: i })));
+        form.downtimes.map((d, i) => ({ location_id: id, hours: numOr0(d.hours), reason: d.reason || null, ordinal: i })));
       if (form.extras.length) await supabase.from('location_units').insert(
         form.extras.map((code, i) => ({
           location_id: id, unit_code: code,
-          qty: Number(form.extra_qty?.[code]) > 0 ? Number(form.extra_qty[code]) : 1,
+          qty: numOr0(form.extra_qty?.[code]) > 0 ? numOr0(form.extra_qty[code]) : 1,
           ordinal: i,
         })));
 

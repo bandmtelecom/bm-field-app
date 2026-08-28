@@ -6,6 +6,7 @@ import {
   CASE_MATERIALS, EXTRA_UNITS, inferTrayMaterial,
 } from '../lib/options';
 import { STRUCTURE_LABELS } from '../lib/types';
+import { parseNum } from '../lib/num';
 import ClosurePicker from './ClosurePicker';
 
 export interface LocationForm {
@@ -84,8 +85,8 @@ export default function LocationBlock({
   const needsWestFix = (() => {
     const raw = (value.gps_lng ?? '').trim();
     if (!raw) return false;
-    const n = Number(raw);
-    return Number.isFinite(n) && n > 0;
+    const n = parseNum(raw);   // "96.97 W" is a dropped minus sign too — Number() made it NaN and it slipped through
+    return n != null && n > 0;
   })();
 
   /** Pick files. Previews are object URLs, revoked when the row is removed. */
