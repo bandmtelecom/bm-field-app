@@ -156,22 +156,40 @@ export function computeInvoice(job: JobInput): InvoiceDraft {
     for (const loc of v.locations) {
       const src = `${loc.closureCode ?? 'closure'} · ${v.date}`;
 
-      // case action
+      // ---- the case: LABOR and MATERIAL are two separate questions ----------
+      //
+      // Austin, 8/30, on 26-352's Lumen-0018: "when the tech puts midsheath they
+      // did call out we used a 450D closure but we didnt bill for another
+      // closure... the midsheath is the labor that replaces the new case labor."
+      //
+      // The tech had set Enclosure = New, model 450D, Case action = Midsheath
+      // prep — a new 450D went in the hole and was opened midsheath. The old
+      // code hung the case material off `case_action === 'new_case'`, so a case
+      // that went in on a midsheath billed nothing. A $478.81 closure went out
+      // the door unbilled and nothing on screen looked wrong.
+      //
+      //   case action  → the LABOR. Midsheath prep REPLACES the new-case labor;
+      //                  they are never both billed for one case.
+      //   a case code  → the MATERIAL. If a case physically went in, it bills,
+      //                  whatever labor it took to put it there.
       switch (loc.caseAction) {
         case 'reenter':
           lines.push(line('REENTER', 1, rate('REENTER'), `Re-enter · ${src}`));
           break;
         case 'new_case':
           lines.push(line('CASE_NEW', 1, rate('CASE_NEW'), `New case labor · ${src}`));
-          if (loc.newCaseMaterialCode) {
-            lines.push(line(loc.newCaseMaterialCode, 1, rate(loc.newCaseMaterialCode),
-              `New case material · ${src}`));
-          }
           break;
         case 'midsheath':
           lines.push(line('PREP_MIDSHEATH', 1, rate('PREP_MIDSHEATH'),
             `Midsheath prep · ${src}`));
           break;
+      }
+
+      // The physical case, billed once, off the case itself rather than off the
+      // labor that went with it.
+      if (loc.newCaseMaterialCode) {
+        lines.push(line(loc.newCaseMaterialCode, 1, rate(loc.newCaseMaterialCode),
+          `Case material · ${src}`));
       }
 
       // splices (6-fiber minimum per enclosure)

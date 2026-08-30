@@ -26,7 +26,7 @@ export async function loadJobInput(jobId: string): Promise<JobInput> {
       .from('locations')
       .select(`
         id, closure_id, structure_type, hole_ref, gps_lat, gps_lng, techs,
-        case_action, new_case_material_code, splice_type, splice_count,
+        case_action, enclosure_new, new_case_material_code, splice_type, splice_count,
         trays_added, tray_material_code, test_fiber_count, test_type,
         closures ( closure_code )
       `)
@@ -57,6 +57,9 @@ export async function loadJobInput(jobId: string): Promise<JobInput> {
         gpsLat: l.gps_lat != null ? Number(l.gps_lat) : undefined,
         gpsLng: l.gps_lng != null ? Number(l.gps_lng) : undefined,
         caseAction: (l.case_action ?? null) as CaseAction | null,
+        // The New/Existing toggle — what says a case physically went in. The
+        // case action only says which labor it took.
+        enclosureNew: (l as any).enclosure_new === true,
         newCaseMaterialCode: l.new_case_material_code ?? undefined,
         spliceType: (l.splice_type ?? null) as SpliceType | null,
         spliceCount: Number(l.splice_count ?? 0),

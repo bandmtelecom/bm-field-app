@@ -3,7 +3,7 @@ import type { ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
 import {
   ENCLOSURE_MODELS, STRUCTURE_OWNERS, MANUFACTURERS, DOWNTIME_REASONS,
-  CASE_MATERIALS, EXTRA_UNITS, inferTrayMaterial,
+  CASE_MATERIALS, EXTRA_UNITS, inferTrayMaterial, inferCaseMaterial,
 } from '../lib/options';
 import { STRUCTURE_LABELS } from '../lib/types';
 import { parseNum, splitNames } from '../lib/num';
@@ -67,6 +67,15 @@ export default function LocationBlock({
   const isBuilding = value.structure_type === 'building';
   /** What the app read out of the techs box — shown so nothing gets swallowed. */
   const crew = splitNames(value.techs);
+
+  /** A case went in whenever the enclosure is New. "New case" as a case action
+   *  still counts on its own, so nothing that used to show this box stops. */
+  const showCasePicker = value.enclosure_new || value.case_action === 'new_case';
+  /** The priced row this enclosure model corresponds to, when we know it. */
+  const caseSuggestion = (() => {
+    const code = inferCaseMaterial(value.enclosure_model, value.structure_type);
+    return code ? CASE_MATERIALS.find((c) => c.code === code) ?? null : null;
+  })();
 
   /** Standard makes + every manufacturer already recorded on a real job. */
   const [seenMfrs, setSeenMfrs] = useState<string[]>([]);
@@ -297,13 +306,46 @@ export default function LocationBlock({
           <button type="button" key={v} className={value.case_action === v ? 'on' : ''} onClick={() => set({ case_action: v })}>{l}</button>
         ))}
       </div>
-      {value.case_action === 'new_case' && (
+      {/* ---- which case went in the hole ------------------------------------
+          This used to hang off the "New case" button, so a tech who set
+          Enclosure = New, model 450D and Case action = Midsheath prep — a new
+          450D dropped in and opened midsheath, which is exactly what happened at
+          Lumen-0018 on 26-352 — was never shown this box at all. The case billed
+          nothing. $478.81 out the door with nothing on screen looking wrong.
+
+          The New/Existing toggle is what says a case went in; the case action is
+          only which labor it took. So the picker follows the toggle. */}
+      {showCasePicker && (
         <>
-          <label>New case — pick the case</label>
-          <select value={value.new_case_material_code} onChange={(e) => set({ new_case_material_code: e.target.value })}>
+          <label>Which case went in</label>
+          <select value={value.new_case_material_code}
+            onChange={(e) => set({ new_case_material_code: e.target.value })}>
             <option value="">—</option>
             {CASE_MATERIALS.map((c) => <option key={c.code} value={c.code}>{c.label}</option>)}
           </select>
+
+          {/* Offer the match rather than writing it in behind him — same as the
+              longitude fix. He can always pick something else. */}
+          {!value.new_case_material_code && caseSuggestion && (
+            <div className="card" style={{ borderColor: 'var(--accent)', marginTop: 6 }}>
+              <strong className="small">
+                A {value.enclosure_model} is {caseSuggestion.label}.
+              </strong>
+              <p className="muted small" style={{ marginTop: 4 }}>
+                This is the case B&M bills for. Nothing bills until you pick one.
+              </p>
+              <div style={{ height: 8 }} />
+              <button type="button" className="btn"
+                onClick={() => set({ new_case_material_code: caseSuggestion.code })}>
+                Use {caseSuggestion.label}
+              </button>
+            </div>
+          )}
+          {!value.new_case_material_code && !caseSuggestion && (
+            <p className="muted small" style={{ marginTop: 4 }}>
+              Pick the case that went in — it doesn't bill until you do.
+            </p>
+          )}
         </>
       )}
 

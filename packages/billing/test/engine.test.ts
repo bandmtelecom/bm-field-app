@@ -115,6 +115,49 @@ describe('case actions', () => {
     expect(lineFor(d, 'PREP_MIDSHEATH')).toHaveLength(1);
     expect(lineFor(d, 'CASE_NEW')).toHaveLength(0);
   });
+
+  // 26-352's Lumen-0018, 8/30. The tech set Enclosure = New, model 450D, Case
+  // action = Midsheath prep — a new 450D dropped in and opened midsheath. The
+  // case material used to hang off `case_action === 'new_case'`, so it billed
+  // nothing at all. Austin: "the midsheath is the labor that replaces the new
+  // case labor" — the case still bills.
+  it('MIDSHEATH with a new case → prep labor + the case, and NOT the new-case labor', () => {
+    const d = computeInvoice(capitalJob([
+      loc({ id: 'a', caseAction: 'midsheath', enclosureNew: true,
+            newCaseMaterialCode: 'CASE_UG_D_1130',
+            spliceType: 'ribbon', spliceCount: 6 }),
+    ]));
+    expect(lineFor(d, 'PREP_MIDSHEATH')).toHaveLength(1);
+    expect(lineFor(d, 'CASE_NEW')).toHaveLength(0);          // never both labors
+    expect(lineFor(d, 'CASE_UG_D_1130')).toHaveLength(1);
+    expect(totalOf(d, 'CASE_UG_D_1130')).toBeCloseTo(478.81, 2);
+  });
+
+  it('new case still bills its own labor AND the case', () => {
+    const d = computeInvoice(capitalJob([
+      loc({ id: 'a', caseAction: 'new_case', enclosureNew: true,
+            newCaseMaterialCode: 'CASE_UG_D_1130', spliceType: 'single', spliceCount: 6 }),
+    ]));
+    expect(totalOf(d, 'CASE_NEW')).toBe(242);
+    expect(lineFor(d, 'CASE_UG_D_1130')).toHaveLength(1);
+    expect(lineFor(d, 'PREP_MIDSHEATH')).toHaveLength(0);
+  });
+
+  it('a midsheath with no case in it bills no material', () => {
+    const d = computeInvoice(capitalJob([
+      loc({ id: 'a', caseAction: 'midsheath', spliceType: 'single', spliceCount: 6 }),
+    ]));
+    expect(lineFor(d, 'CASE_UG_D_1130')).toHaveLength(0);
+    expect(lineFor(d, 'CASE_UG_B')).toHaveLength(0);
+  });
+
+  it('the case bills once, never twice, whatever the labor', () => {
+    const d = computeInvoice(capitalJob([
+      loc({ id: 'a', caseAction: 'new_case', enclosureNew: true,
+            newCaseMaterialCode: 'CASE_UG_D_1130', spliceType: 'single', spliceCount: 6 }),
+    ]));
+    expect(lineFor(d, 'CASE_UG_D_1130')).toHaveLength(1);
+  });
 });
 
 describe('testing rule', () => {
@@ -534,7 +577,10 @@ describe('26-352 regression — the LOR that billed half a crew', () => {
                           techs: ['Armando', 'Josh L'], downtimeHours: 7.5 })] },
       // 8/21 — the DWDM find; Lumen-0018 midsheath
       { id: 'v2', date: '2026-08-21', techs: ['Armando', 'Spencer'],
+        // Enclosure = New, model 450D, Case action = Midsheath prep.
+        // Austin confirmed 8/30 that a 450D underground is unit 65.
         locations: [loc({ id: 'l18', closureCode: 'Lumen-0018', caseAction: 'midsheath',
+                          enclosureNew: true, newCaseMaterialCode: 'CASE_UG_D_1130',
                           techs: ['Armando', 'Spencer'], spliceType: 'ribbon', spliceCount: 6,
                           traysAdded: 1, downtimeHours: 1.5 })] },
       // 8/21 — the added locations, two crews split between two holes
@@ -576,6 +622,23 @@ describe('26-352 regression — the LOR that billed half a crew', () => {
     expect(lineFor(d, 'CASE_NEW')).toHaveLength(2);
     expect(lineFor(d, 'PREP_MIDSHEATH')).toHaveLength(1);
     expect(totalOf(d, 'ADD_TRAY')).toBeCloseTo(8 * 20.75, 2); // 1 + 3 + 4 trays
+  });
+
+  // Austin, 8/30: "we have a total of 2 on the invoice now and we should have 3."
+  // Lumen-0016 and Lumen-0017 billed their cases; Lumen-0018's 450D did not,
+  // because it went in on a midsheath.
+  it('THREE cases bill, not two — Lumen-0018s 450D included', () => {
+    const d = computeInvoice(job352());
+    expect(lineFor(d, 'CASE_UG_D_1130')).toHaveLength(3);
+    expect(totalOf(d, 'CASE_UG_D_1130')).toBeCloseTo(3 * 478.8114, 2);
+  });
+
+  it('Lumen-0018 bills the midsheath labor, not the new-case labor', () => {
+    const d = computeInvoice(job352());
+    const l18 = d.lines.filter(l => l.source.includes('Lumen-0018'));
+    expect(l18.some(l => l.unitCode === 'PREP_MIDSHEATH')).toBe(true);
+    expect(l18.some(l => l.unitCode === 'CASE_NEW')).toBe(false);
+    expect(l18.some(l => l.unitCode === 'CASE_UG_D_1130')).toBe(true);
   });
 
   it('scheduled-ahead kills the travel but never the downtime', () => {

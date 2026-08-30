@@ -63,6 +63,26 @@ export const EXTRA_UNITS: {
 ];
 
 // Tray material inferred from enclosure model + single/ribbon.
+/**
+ * Which priced case row an enclosure model corresponds to.
+ *
+ * Only what Austin has actually confirmed goes in here. 26-352's Lumen-0018 was
+ * a 450D in a manhole and he named it unit 65, CASE UG FIB D 11.5x30 GEL 36
+ * TRAY. Nothing else on the enclosure list has been mapped, and guessing the
+ * rest is how trays ended up on unit 171 instead of 173 back in August.
+ *
+ * A null here is not a failure — it means the crew picks the case from the
+ * dropdown, same as they always have. Add rows as Austin confirms them.
+ */
+export function inferCaseMaterial(
+  enclosure: string, structureType: StructureCode,
+): string | null {
+  const e = (enclosure || '').trim().toLowerCase();
+  const underground = structureType === 'mh' || structureType === 'hh';
+  if (e === '450d' && underground) return 'CASE_UG_D_1130';   // Austin, 8/30/26
+  return null;
+}
+
 export function inferTrayMaterial(enclosure: string, spliceType: string | null): string | null {
   const e = (enclosure || '').toLowerCase();
   if (e.includes('450')) return 'TRAY_450B_24';
