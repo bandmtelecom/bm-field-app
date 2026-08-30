@@ -66,21 +66,42 @@ export const EXTRA_UNITS: {
 /**
  * Which priced case row an enclosure model corresponds to.
  *
- * Only what Austin has actually confirmed goes in here. 26-352's Lumen-0018 was
- * a 450D in a manhole and he named it unit 65, CASE UG FIB D 11.5x30 GEL 36
- * TRAY. Nothing else on the enclosure list has been mapped, and guessing the
- * rest is how trays ended up on unit 171 instead of 173 back in August.
+ * The card carries each case in an aerial and an underground version of the
+ * same size, so the model gives the SIZE and the structure the tech already
+ * picked gives which side of the pair to bill.
  *
- * A null here is not a failure — it means the crew picks the case from the
- * dropdown, same as they always have. Add rows as Austin confirms them.
+ * All of this is Austin's, confirmed 8/30/26 — none of it is inferred from the
+ * model names. Guessing this kind of mapping is how trays ended up on unit 171
+ * instead of 173 back in August.
+ *
+ *   450B → B  9.8x24 gel, no tray   unit 63 UG / 17 aerial
+ *   450D → D  11.5x30, 36 tray      unit 65 UG / 19 aerial
+ *   600D → D  11x33, 36 tray        unit 68 UG / 22 aerial
+ *
+ * The rest of ENCLOSURE_MODELS — Windsor, the stainless, the domes — are
+ * deliberately absent. Austin, 8/30: "the other closure are not ones that we
+ * put on just ones that we want to document for lumen." B&M does not install
+ * them, so they must never bill a case. They are there to describe what the
+ * crew found in the hole.
+ *
+ * A null is not a failure. It means the crew picks the case from the dropdown,
+ * exactly as they always have.
  */
+const CASE_BY_MODEL: Record<string, { ug: string; aer: string }> = {
+  '450b': { ug: 'CASE_UG_B', aer: 'CASE_AER_B' },
+  '450d': { ug: 'CASE_UG_D_1130', aer: 'CASE_AER_D_1130' },
+  '600d': { ug: 'CASE_UG_D_1133', aer: 'CASE_AER_D_1133' },
+};
+
 export function inferCaseMaterial(
   enclosure: string, structureType: StructureCode,
 ): string | null {
-  const e = (enclosure || '').trim().toLowerCase();
-  const underground = structureType === 'mh' || structureType === 'hh';
-  if (e === '450d' && underground) return 'CASE_UG_D_1130';   // Austin, 8/30/26
-  return null;
+  const row = CASE_BY_MODEL[(enclosure || '').trim().toLowerCase()];
+  if (!row) return null;
+  // Aerial is the only one that takes the AER row. A building bills the
+  // underground version — Austin, 8/30/26 — so mh, hh and building all land on
+  // the same side of the pair.
+  return structureType === 'aerial' ? row.aer : row.ug;
 }
 
 export function inferTrayMaterial(enclosure: string, spliceType: string | null): string | null {
