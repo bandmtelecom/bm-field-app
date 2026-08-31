@@ -265,7 +265,7 @@ export default function EditLocation() {
 
         <LocationBlock
           value={form} index={0} customerId={customerId}
-          priorLocations={prior} displayNo={jobNo}
+          priorLocations={prior} displayNo={jobNo} excludeLocationId={id ?? null}
           onChange={setForm}
           onRemove={() => nav(jobId ? `/jobs/${jobId}` : '/')}
         />

@@ -7,6 +7,10 @@ import {
 } from '../lib/options';
 import { STRUCTURE_LABELS } from '../lib/types';
 import { parseNum, splitNames } from '../lib/num';
+import { lastCablesForClosure, lastCablesForLocation, cableLabel } from '../lib/closures';
+import {
+  hasAnyCableContent, suggestionAge, type CableSuggestion,
+} from '../lib/cableSuggest';
 import ClosurePicker from './ClosurePicker';
 
 import type { PriorLocation } from '../lib/locationNo';
@@ -70,11 +74,15 @@ export function emptyLocation(): LocationForm {
 }
 
 export default function LocationBlock({
-  value, index, customerId, priorLocations = [], displayNo = null, onChange, onRemove,
+  value, index, customerId, priorLocations = [], displayNo = null,
+  excludeLocationId = null, onChange, onRemove,
 }: {
   value: LocationForm; index: number; customerId?: string | null;
   /** Holes already on this job, offered as return trips. Empty on a first visit. */
   priorLocations?: PriorLocation[];
+  /** The location being edited, on the office Edit screen — so it is never
+   *  offered its own cables back as though they came from a previous trip. */
+  excludeLocationId?: string | null;
   /** The B&M location number this block will end up with. The database is what
    *  actually assigns it; this is the same arithmetic, shown early so nobody is
    *  surprised by the report. */
@@ -116,6 +124,52 @@ export default function LocationBlock({
   const mfrOptions = Array.from(new Set([...MANUFACTURERS, ...seenMfrs]))
     .filter((m) => m && m !== 'Other')      // "Other" is what you pick when you can't type; now you can
     .sort((a, b) => a.localeCompare(b));
+
+  // ---- what was in this hole last time --------------------------------------
+  // Austin, 8/31: "if the techs accept that its the same closure go ahead and
+  // auto populate the cable info to their report." The make, the date code and
+  // the footage are properties of the cable, not of the trip, so a man was
+  // retyping the same four boxes every time he came back.
+  //
+  // Fetched the moment he names the hole — either by picking a closure from the
+  // registry (works across jobs; Lumen-0019 is on both 26-357 and 26-359) or by
+  // answering the return-trip question. Offered, never written in: see the note
+  // at the top of lib/cableSuggest.ts.
+  const [cableOffer, setCableOffer] = useState<CableSuggestion | null>(null);
+  const [offerDismissed, setOfferDismissed] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setOfferDismissed(false);           // a different hole is a different offer
+    const closureId = value.closure_id;
+    const revisitId = value.revisit_of;
+    if (!closureId && !revisitId) { setCableOffer(null); return; }
+
+    // The closure is the better source when there is one — it carries every job
+    // this hole has ever appeared on, not just this one.
+    (closureId
+      ? lastCablesForClosure(closureId, excludeLocationId)
+      : lastCablesForLocation(revisitId as string)
+    )
+      .then((s) => { if (alive) setCableOffer(s && s.cables.length ? s : null); })
+      .catch((e) => {
+        // Not fatal: he types them the way he always did.
+        if (alive) setCableOffer(null);
+        console.error('could not load the cables from last time', e);
+      });
+
+    return () => { alive = false; };
+  }, [value.closure_id, value.revisit_of, excludeLocationId]);
+
+  /** Only offer into an empty list — never on top of what a man has typed. */
+  const showCableOffer =
+    !isBuilding && !!cableOffer && !offerDismissed && !hasAnyCableContent(value.cables);
+
+  function acceptCables() {
+    if (!cableOffer) return;
+    set({ cables: cableOffer.cables.map((c) => ({ ...c })) });
+    setOfferDismissed(true);
+  }
 
   /** Positive longitude = a dropped minus sign. See the note by the GPS row. */
   const needsWestFix = (() => {
@@ -487,6 +541,48 @@ export default function LocationBlock({
       <datalist id="bm-mfr-list">
         {mfrOptions.map((m) => <option key={m} value={m} />)}
       </datalist>
+
+      {/* ---- the cables that were in here last time -------------------------
+          Shown filled in and greyed out, with one button. He does not retype
+          the make, the date code and the footage; he checks them against what
+          he is looking at and taps once.
+
+          The tap is the point. This report goes to Lumen as what is in that
+          hole TODAY — if the app wrote the rows in by itself, a man who
+          scrolled past would have told the customer something nobody
+          verified. */}
+      {showCableOffer && cableOffer && (
+        <div className="card" style={{ borderColor: 'var(--accent)', marginTop: 12 }}>
+          <strong className="small">
+            Last time in this hole
+            {cableOffer.closureCode ? ` (${cableOffer.closureCode})` : ''} — {suggestionAge(cableOffer)}
+          </strong>
+          <div style={{ marginTop: 6, opacity: 0.7 }}>
+            {cableOffer.cables.map((c, i) => (
+              <div key={i} className="small" style={{ padding: '2px 0' }}>
+                {cableLabel(c)}
+              </div>
+            ))}
+          </div>
+          <p className="muted small" style={{ marginTop: 6 }}>
+            The make, date code and footage don't change between trips. Check
+            them against what you're looking at — this goes on the report as
+            what's in the hole today.
+          </p>
+          <div style={{ height: 8 }} />
+          <div className="row">
+            <button type="button" className="btn ok" onClick={acceptCables}>
+              Use {cableOffer.cables.length === 1
+                ? 'this cable'
+                : `these ${cableOffer.cables.length} cables`}
+            </button>
+            <button type="button" className="iconbtn"
+              onClick={() => setOfferDismissed(true)}>
+              No, I'll type them
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* cables OR panel ports */}
       {isBuilding ? (

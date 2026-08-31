@@ -1,5 +1,8 @@
 import { supabase } from './supabase';
 import { footageLabel } from './num';
+import {
+  cableToForm, pickLatestWithCables, type CableSuggestion,
+} from './cableSuggest';
 
 /**
  * The closure registry — B&M's permanent list of the closures it has worked.
@@ -244,6 +247,92 @@ export async function closureHistory(closureId: string): Promise<ClosureVisit[]>
   }));
 
   return rows.sort((a, b) => (b.visitDate ?? '').localeCompare(a.visitDate ?? ''));
+}
+
+// ---------------------------------------------------------------------------
+// "You've been in this hole before — here's what was in it."
+//
+// Austin, 8/31: "if the techs accept that its the same closure go ahead and
+// auto populate the cable info to their report." The make, the date code and
+// the footage do not change between trips, and a man in a manhole at 2am was
+// retyping all of it every time.
+//
+// It is an OFFER, never a fill — see the note at the top of `cableSuggest.ts`.
+//
+// ⚠️ Cable info touches NO dollars. Nothing in `packages/billing` reads a cable
+// row (checked 8/31). What cables DO drive is the closure registry — cables
+// recorded = a closure — but by the time these rows are offered the tech has
+// already named the closure or the hole, so an accepted offer cannot mint a
+// duplicate.
+// ---------------------------------------------------------------------------
+
+const CABLE_COLS = 'direction, count, manufacturer, date_code, footage, role, ordinal';
+const SUGGEST_SELECT = `
+  id, created_at,
+  cables(${CABLE_COLS}),
+  closures(closure_code),
+  visits(visit_date, jobs(bm_number))
+`;
+
+function toSuggestion(row: any): CableSuggestion {
+  return {
+    cables: [...((row.cables as any[]) ?? [])]
+      .sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0))
+      .map(cableToForm),
+    visitDate: row.visits?.visit_date ?? null,
+    bmNumber: row.visits?.jobs?.bm_number ?? null,
+    closureCode: row.closures?.closure_code ?? null,
+    sourceLocationId: row.id,
+  };
+}
+
+/**
+ * The cables from the last time anyone worked this closure — across every job,
+ * because a closure's code is permanent: Lumen-0019 turns up on both 26-357 and
+ * 26-359.
+ */
+export async function lastCablesForClosure(
+  closureId: string,
+  excludeLocationId?: string | null,
+): Promise<CableSuggestion | null> {
+  const { data, error } = await supabase
+    .from('locations')
+    .select(SUGGEST_SELECT)
+    .eq('closure_id', closureId);
+
+  // Surfaced, not swallowed. Failing here only means the crew types it all
+  // again — the old behaviour — but the caller still gets told.
+  if (error) throw error;
+
+  const raw = (data as any[]) ?? [];
+  const hit = pickLatestWithCables(
+    raw.map((r) => ({
+      id: r.id as string,
+      visitDate: r.visits?.visit_date ?? null,
+      createdAt: r.created_at ?? null,
+      cables: (r.cables ?? []) as CableRow[],
+    })),
+    excludeLocationId,
+  );
+  if (!hit) return null;
+  return toSuggestion(raw.find((r) => r.id === hit.id));
+}
+
+/**
+ * The cables from one specific earlier location — the same-job return trip, for
+ * a hole with no closure code of its own yet.
+ */
+export async function lastCablesForLocation(
+  locationId: string,
+): Promise<CableSuggestion | null> {
+  const { data, error } = await supabase
+    .from('locations')
+    .select(SUGGEST_SELECT)
+    .eq('id', locationId)
+    .single();
+  if (error) throw error;
+  if (!data || !(((data as any).cables ?? []).length)) return null;
+  return toSuggestion(data);
 }
 
 export async function getClosure(id: string): Promise<ClosureRow | null> {
