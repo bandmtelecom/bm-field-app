@@ -4,8 +4,10 @@ import { supabase } from '../lib/supabase';
 import { uploadAttachment } from '../lib/attachments';
 import { useSession } from '../lib/session';
 import { STATUS_FLAGS } from '../lib/types';
-import LocationBlock, { emptyLocation, inferTrayMaterial, LocationForm } from '../components/LocationBlock';
+import LocationBlock, { emptyLocation, inferTrayMaterial, type LocationForm, type PriorLocation } from '../components/LocationBlock';
 import { numOrNull, numOr0, splitNames } from '../lib/num';
+import { loadPriorLocations } from '../lib/priorLocations';
+import { previewNumbers } from '../lib/locationNo';
 
 export default function AddVisit() {
   const { id } = useParams();
@@ -24,15 +26,38 @@ export default function AddVisit() {
   const [locations, setLocations] = useState<LocationForm[]>([emptyLocation()]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  /** Holes already on this job, so a return trip can reuse that hole's number
+   *  instead of starting another "Location 1". Empty on a job's first visit. */
+  const [prior, setPrior] = useState<PriorLocation[]>([]);
 
   useEffect(() => {
     supabase.from('jobs').select('id, bm_number, customer_id, billing_mode, title')
       .eq('id', id).single().then(({ data }) => setJob(data));
   }, [id]);
 
+  useEffect(() => {
+    if (!id) return;
+    let alive = true;
+    loadPriorLocations(id)
+      .then((rows) => { if (alive) setPrior(rows); })
+      // Not fatal — the report still files. It just means this crew is not
+      // offered the return-trip list and their hole gets a fresh number, which
+      // the office can fix in one click on Edit Location.
+      .catch((e) => console.error('could not load the job\'s earlier locations', e));
+    return () => { alive = false; };
+  }, [id]);
+
   function setLoc(i: number, v: LocationForm) {
     setLocations((prev) => prev.map((l, x) => (x === i ? v : l)));
   }
+
+  // The B&M number each block on this screen will end up with. Same arithmetic
+  // the database runs on insert — shown here only so nobody meets the number
+  // for the first time on the customer's report.
+  const nos = previewNumbers(prior, locations);
+  /** How a location is named in a warning, on screen and in the office. */
+  const nameOf = (i: number) =>
+    `Location ${nos[i] ?? i + 1}${locations[i]?.pm_location_no ? ` (PM #${locations[i].pm_location_no})` : ''}`;
 
   async function submit() {
     if (!id || !job) return;
@@ -107,9 +132,7 @@ export default function AddVisit() {
             // The visit itself still saves - a tech standing in a hole at 2am must
             // not lose a filled-in report because the registry hiccuped. But the
             // failure is collected and shown plainly once the save finishes.
-            closureWarnings.push(
-              `Location ${ord + 1}${L.pm_location_no ? ` (${L.pm_location_no})` : ''}: ${ce?.message ?? 'unknown error'}`,
-            );
+            closureWarnings.push(`${nameOf(ord)}: ${ce?.message ?? 'unknown error'}`);
             console.error('closure registration failed', ce);
           }
         }
@@ -118,7 +141,7 @@ export default function AddVisit() {
         if (L.photos?.length) {
           photoQueue.push({
             locationId: '',            // filled in once the location row exists
-            label: `Location ${ord + 1}${L.pm_location_no ? ` (${L.pm_location_no})` : ''}`,
+            label: nameOf(ord),
             files: L.photos.map((p) => p.file),
           });
         }
@@ -131,6 +154,10 @@ export default function AddVisit() {
 
         const { data: loc, error: lErr } = await supabase.from('locations').insert({
           visit_id: visit.id, closure_id: closureId, pm_location_no: L.pm_location_no || null,
+          // The tech said this is a hole we have already been in on this job.
+          // The database reads it and gives the row that hole's number back
+          // instead of a new one — nothing here computes the number.
+          revisit_of: L.revisit_of,
           tech_id: userId, techs: splitNames(L.techs),
           hole_ref: L.hole_ref || null, structure_type: L.structure_type,
           structure_owner: L.structure_owner || null, building_address: L.building_address || null,
@@ -231,12 +258,14 @@ export default function AddVisit() {
 
         {locations.map((L, i) => (
           <LocationBlock key={i} value={L} index={i} customerId={job?.customer_id ?? null}
+            priorLocations={prior} displayNo={nos[i]}
             onChange={(v) => setLoc(i, v)}
             onRemove={() => setLocations((p) => p.filter((_, x) => x !== i))} />
         ))}
         {/* Carry the crew forward. Most nights the same men move hole to hole,
             so nobody types more than they did when it was one box at the top —
-            they only change it on the hole where they split up. */}
+            they only change it on the hole where they split up. The return-trip
+            answer is deliberately NOT carried forward: it is about one hole. */}
         <button className="addline" onClick={() => setLocations((p) => [
           ...p, { ...emptyLocation(), techs: p[p.length - 1]?.techs ?? '' },
         ])}>＋ Add another location</button>

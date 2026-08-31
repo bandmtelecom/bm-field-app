@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
-import LocationBlock, { emptyLocation, inferTrayMaterial, type LocationForm } from '../components/LocationBlock';
+import LocationBlock, { emptyLocation, inferTrayMaterial, type LocationForm, type PriorLocation } from '../components/LocationBlock';
 import { numOrNull, numOr0, splitNames, joinNames } from '../lib/num';
+import { loadPriorLocations } from '../lib/priorLocations';
 
 const str = (v: unknown) => (v == null ? '' : String(v));
 
@@ -32,6 +33,12 @@ export default function EditLocation() {
   const [meta, setMeta] = useState<{ visitDate?: string; bm?: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  /** B&M's number for this hole on this job. Read-only here — it is the
+   *  return-trip answer below that moves it, never a box somebody types in. */
+  const [jobNo, setJobNo] = useState<number | null>(null);
+  /** The other holes on this job, so a mis-filed return trip can be corrected
+   *  without anybody re-entering the report. */
+  const [prior, setPrior] = useState<PriorLocation[]>([]);
 
   useEffect(() => {
     if (!id) return;
@@ -56,6 +63,16 @@ export default function EditLocation() {
       setVisitId(a.visits?.id ?? null);
       setCustomerId(a.visits?.jobs?.customer_id ?? null);
       setMeta({ visitDate: a.visits?.visit_date, bm: a.visits?.jobs?.bm_number });
+      setJobNo(a.job_location_no ?? null);
+
+      // Every other hole on this job, minus this one. Loading it here rather
+      // than in the block keeps the "which hole is this" question answerable
+      // from the office with the same list the tech saw in the field.
+      if (a.visits?.job_id) {
+        loadPriorLocations(a.visits.job_id, a.id)
+          .then(setPrior)
+          .catch((e) => console.error('could not load the job\'s other locations', e));
+      }
 
       const byOrd = (x: any[]) => [...(x ?? [])].sort((p, q) => (p.ordinal ?? 0) - (q.ordinal ?? 0));
       const extras = byOrd(a.location_units).filter((u: any) => u.unit_code);
@@ -63,6 +80,7 @@ export default function EditLocation() {
       setForm({
         ...emptyLocation(),
         pm_location_no: str(a.pm_location_no),
+        revisit_of: a.revisit_of ?? null,
         // Pre-0011 rows have no crew of their own; fall back to whoever the
         // visit said was out, so the office sees names rather than an empty box.
         techs: joinNames(
@@ -147,6 +165,10 @@ export default function EditLocation() {
 
       const { error: uErr } = await supabase.from('locations').update({
         closure_id: closureId, pm_location_no: form.pm_location_no || null,
+        // Setting this makes the row take that hole's number; clearing it gives
+        // the row a fresh number at the end of the job. Both are the database's
+        // decision, not this screen's — see migration 0012.
+        revisit_of: form.revisit_of,
         techs: splitNames(form.techs),
         hole_ref: form.hole_ref || null, structure_type: form.structure_type,
         structure_owner: form.structure_owner || null,
@@ -230,10 +252,20 @@ export default function EditLocation() {
               Currently attached to {form.closure_code}.
             </p>
           )}
+          {jobNo != null && (
+            <p className="small" style={{ marginTop: 2 }}>
+              The customer sees this as <strong>Location {jobNo}</strong> on{' '}
+              {meta?.bm ?? 'this job'}
+              {form.revisit_of ? ' — filed as a return trip to that hole.' : '.'}
+              {' '}Change that with the return-trip question below, not by typing
+              a number.
+            </p>
+          )}
         </div>
 
         <LocationBlock
           value={form} index={0} customerId={customerId}
+          priorLocations={prior} displayNo={jobNo}
           onChange={setForm}
           onRemove={() => nav(jobId ? `/jobs/${jobId}` : '/')}
         />

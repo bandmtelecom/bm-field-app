@@ -9,8 +9,19 @@ import { STRUCTURE_LABELS } from '../lib/types';
 import { parseNum, splitNames } from '../lib/num';
 import ClosurePicker from './ClosurePicker';
 
+import type { PriorLocation } from '../lib/locationNo';
+
+// Re-exported so the pages keep importing their location types from one place.
+// It lives in lib/locationNo.ts because that module has no React and no
+// database in it, which is what makes the numbering testable.
+export type { PriorLocation };
+
 export interface LocationForm {
   pm_location_no: string;
+  /** The earlier location on THIS job that this entry is a return trip to.
+   *  null = a hole we have not been in yet on this job. Only a tech can say
+   *  which it is, so this is a choice on the form and never a guess. */
+  revisit_of: string | null;
   /** The men who worked THIS hole, as typed. Downtime bills per tech against
    *  this list, so when a crew splits up each hole carries its own names. */
   techs: string;
@@ -46,7 +57,8 @@ export interface LocationForm {
 
 export function emptyLocation(): LocationForm {
   return {
-    pm_location_no: '', techs: '', structure_type: 'mh', structure_owner: '', building_address: '',
+    pm_location_no: '', revisit_of: null,
+    techs: '', structure_type: 'mh', structure_owner: '', building_address: '',
     gps_lat: '', gps_lng: '', hole_ref: '', enclosure_new: false, enclosure_model: '',
     case_action: '', new_case_material_code: '', splice_type: '', splice_count: '',
     trays_added: '', test_fiber_count: '', test_type: 'otdr',
@@ -58,12 +70,22 @@ export function emptyLocation(): LocationForm {
 }
 
 export default function LocationBlock({
-  value, index, customerId, onChange, onRemove,
+  value, index, customerId, priorLocations = [], displayNo = null, onChange, onRemove,
 }: {
   value: LocationForm; index: number; customerId?: string | null;
+  /** Holes already on this job, offered as return trips. Empty on a first visit. */
+  priorLocations?: PriorLocation[];
+  /** The B&M location number this block will end up with. The database is what
+   *  actually assigns it; this is the same arithmetic, shown early so nobody is
+   *  surprised by the report. */
+  displayNo?: number | null;
   onChange: (v: LocationForm) => void; onRemove: () => void;
 }) {
   const set = (patch: Partial<LocationForm>) => onChange({ ...value, ...patch });
+  /** The hole this entry is a return trip to, when the tech has said so. */
+  const revisitTarget = value.revisit_of
+    ? priorLocations.find((p) => p.id === value.revisit_of) ?? null
+    : null;
   const isBuilding = value.structure_type === 'building';
   /** What the app read out of the techs box — shown so nothing gets swallowed. */
   const crew = splitNames(value.techs);
@@ -145,15 +167,87 @@ export default function LocationBlock({
 
   return (
     <div className="block">
+      {/* ---- which location this is, on the WHOLE job ----------------------
+          The number used to be whatever the tech typed, falling back to the
+          position in this one report — and both restart at 1 every time a crew
+          files. On 26-349 four crews worked four different holes in one night
+          and the customer's report had two blocks headed "Location 1" a mile
+          and a half apart.
+
+          B&M's number now counts across the job and the database hands it out,
+          so two men filing at the same time cannot land on the same one. It is
+          a label: nothing on the invoice reads it. */}
       <div className="head">
-        <strong>Location {index + 1}{value.pm_location_no ? ` · #${value.pm_location_no}` : ''}</strong>
+        <strong>
+          Location {revisitTarget?.job_location_no ?? displayNo ?? index + 1}
+          {revisitTarget ? ' · revisit' : ''}
+        </strong>
         <button className="rm" onClick={onRemove}>Remove</button>
       </div>
 
+      {/* ---- have we been in this hole already on this job? -----------------
+          Only shown once there is something to go back to, so a first visit
+          looks exactly like it always did.
+
+          This is a question and not a guess on purpose. Cables identify a hole
+          and GPS does not — 26-359 had two closures 32 feet apart that were two
+          different holes — so the man who was standing in it is the only one
+          who can answer. Saying yes reuses that hole's number instead of
+          burning a new one. */}
+      {priorLocations.length > 0 && (
+        <>
+          <label>Have we been in this hole before on this job?</label>
+          <select
+            value={value.revisit_of ?? ''}
+            onChange={(e) => {
+              const id = e.target.value || null;
+              const hit = id ? priorLocations.find((p) => p.id === id) ?? null : null;
+              // Back in the same hole means the same closure, so attach it and
+              // save the man picking it twice. Never overwrite one he has
+              // already chosen by hand — he was there and the list was not.
+              const takeClosure = hit?.closure_id && !value.closure_id;
+              set({
+                revisit_of: id,
+                closure_id: takeClosure ? hit!.closure_id : value.closure_id,
+                closure_code: takeClosure ? hit!.closure_code : value.closure_code,
+              });
+            }}
+          >
+            <option value="">No — this is a hole we haven't been in yet</option>
+            {priorLocations.map((p) => (
+              <option key={p.id} value={p.id}>{priorLabel(p)}</option>
+            ))}
+          </select>
+
+          {revisitTarget ? (
+            <div className="card" style={{ borderColor: 'var(--ok)', marginTop: 6 }}>
+              <strong className="small">
+                This goes on the report as Location {revisitTarget.job_location_no ?? '—'} again
+                {revisitTarget.closure_code ? ` (${revisitTarget.closure_code})` : ''}.
+              </strong>
+              <p className="muted small" style={{ marginTop: 4 }}>
+                {revisitTarget.cables.length
+                  ? `Last time this hole had ${revisitTarget.cables.join(' · ')}. If that isn't what you're looking at, it's a different hole — pick "no" above.`
+                  : 'No cables were recorded here last time, so check the GPS and the structure before you leave this set.'}
+              </p>
+            </div>
+          ) : (
+            <p className="muted small" style={{ marginTop: 4 }}>
+              Say yes only if it's the same hole. Match the cables, not the GPS —
+              two closures can sit thirty feet apart.
+            </p>
+          )}
+        </>
+      )}
+
       <div className="row">
         <div>
-          <label>Location #</label>
-          <input value={value.pm_location_no} placeholder="Location number"
+          {/* The customer's own number, not B&M's. It may repeat, it may be
+              blank, and it rides on the small grey line of the report. Before
+              8/31 this box WAS the heading, which is how four crews each typed
+              a "1" and the report ended up with four of them. */}
+          <label>Customer's location # <span className="muted">(optional)</span></label>
+          <input value={value.pm_location_no} placeholder="what the PM calls it"
             onChange={(e) => set({ pm_location_no: e.target.value })} />
         </div>
         <div>
@@ -480,6 +574,24 @@ export default function LocationBlock({
 }
 
 // helpers -------------------------------------------------------------------
+
+/**
+ * One line in the "have we been here before" list. Everything a man can check
+ * against what he is looking at, shortest first: our number, the closure code
+ * the crew quotes on the phone, what kind of hole it is, and what was in it.
+ */
+export function priorLabel(p: PriorLocation): string {
+  const bits = [
+    `Location ${p.job_location_no ?? '?'}`,
+    p.closure_code,
+    STRUCTURE_LABELS[p.structure_type as keyof typeof STRUCTURE_LABELS] ?? p.structure_type,
+    p.cables.length ? p.cables.join(' / ') : null,
+    p.pm_location_no ? `PM #${p.pm_location_no}` : null,
+    p.visit_date,
+  ].filter(Boolean);
+  return bits.join(' · ');
+}
+
 function upd<T>(rows: T[], i: number, patch: Partial<T>, commit: (rows: T[]) => void) {
   commit(rows.map((r, x) => (x === i ? { ...r, ...patch } : r)));
 }

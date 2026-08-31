@@ -3,13 +3,14 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
 import { markJobComplete, downloadFieldReport, reopenJob, markJobInvoiced, unarchiveJob } from '../lib/api';
-import { STRUCTURE_LABELS, STATUS_FLAGS } from '../lib/types';
+import { STRUCTURE_LABELS, STATUS_FLAGS, locationTitle } from '../lib/types';
 import LocationDetail from '../components/LocationDetail';
 
 // Every column the read-only detail panel needs, pulled in one query with the
 // visit so tapping a location is instant (child tables load on demand).
 const LOCATION_COLS = `
-  id, pm_location_no, techs, hole_ref, structure_type, structure_owner, building_address,
+  id, pm_location_no, job_location_no, revisit_of,
+  techs, hole_ref, structure_type, structure_owner, building_address,
   gps_lat, gps_lng, enclosure_new, enclosure_model, case_action, new_case_material_code,
   splice_type, splice_count, trays_added, tray_material_code,
   test_fiber_count, test_type, as_found, as_built, narrative, ordinal,
@@ -222,7 +223,8 @@ export default function JobRecord() {
                     >
                       <span className="small">
                         <span style={{ display: 'inline-block', width: 14 }}>{open ? '▾' : '▸'}</span>
-                        📍 <strong>{l.closures?.closure_code ?? `Location ${l.pm_location_no ?? ''}`}</strong>
+                        📍 <strong>{locationTitle(l)}</strong>
+                        {l.closures?.closure_code ? ` · ${l.closures.closure_code}` : ''}
                         {' · '}{STRUCTURE_LABELS[l.structure_type as keyof typeof STRUCTURE_LABELS] ?? l.structure_type}
                         {l.splice_type ? ` · ${l.splice_count} ${l.splice_type}` : ''}
                       </span>

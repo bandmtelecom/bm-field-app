@@ -41,7 +41,8 @@ report.get('/jobs/:id/report.pdf', async (req, res) => {
       .select(`
         id, visit_date, report_type, techs, narrative, status_flag,
         locations(
-          id, pm_location_no, techs, structure_type, structure_owner, building_address,
+          id, pm_location_no, job_location_no, revisit_of,
+          techs, structure_type, structure_owner, building_address,
           gps_lat, gps_lng, enclosure_new, enclosure_model, case_action,
           splice_type, splice_count, trays_added, test_fiber_count, test_type,
           as_found, as_built, narrative, ordinal,
@@ -75,6 +76,11 @@ report.get('/jobs/:id/report.pdf', async (req, res) => {
         locations: byOrd(v.locations).map((l: any) => ({
           closureCode: l.closures?.closure_code ?? null,
           pmLocationNo: l.pm_location_no ?? null,
+          // B&M's job-wide number and whether this block is a return trip. Both
+          // come straight from the row — the report never computes a number,
+          // which is how two blocks ended up headed "Location 1" before 8/31.
+          jobLocationNo: l.job_location_no ?? null,
+          isRevisit: l.revisit_of != null,
           techs: (Array.isArray(l.techs) && l.techs.length ? l.techs : (v.techs ?? [])) as string[],
           structureType: l.structure_type ?? null,
           structureOwner: l.structure_owner ?? null,

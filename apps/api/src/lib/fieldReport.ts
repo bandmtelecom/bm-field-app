@@ -40,7 +40,16 @@ export interface ReportDowntime { hours: number | null; reason: string | null; }
 
 export interface ReportLocation {
   closureCode: string | null;
+  /** The CUSTOMER's own location number, as the tech typed it. It repeats and
+   *  it restarts — it is their filing, not ours — so it rides the small grey
+   *  line and never the heading. */
   pmLocationNo: string | null;
+  /** B&M's location number for this JOB: 1, 2, 3 … in the order the holes were
+   *  first worked, handed out by the database (migration 0012). Two blocks
+   *  share a number only when the later one is a return trip to the same hole. */
+  jobLocationNo: number | null;
+  /** True when a crew went back to a hole already on this job. */
+  isRevisit: boolean;
   /** The crew in THIS hole. Empty on reports filed before 8/28/26, when the
    *  names were kept once per visit — those fall back to the visit crew. */
   techs: string[];
@@ -355,7 +364,20 @@ export function buildFieldReport(
         : `${niceDate(dates[0])} – ${niceDate(dates[dates.length - 1])}`)
     : null);
   field('Visits', job.visits.length);
-  field('Locations', job.visits.reduce((s, v) => s + v.locations.length, 0));
+  // Distinct HOLES, not report blocks. Four blocks that are really two holes
+  // worked twice is two locations and two return trips; counting the blocks
+  // overstates the job to the customer. Rows filed before the numbering
+  // migration each count as their own hole, which is what they were.
+  {
+    const allLocs = job.visits.flatMap((v) => v.locations);
+    const holes = new Set(
+      allLocs.map((l, i) => (l.jobLocationNo != null ? `n${l.jobLocationNo}` : `row${i}`)),
+    ).size;
+    const returns = allLocs.filter((l) => l.isRevisit).length;
+    field('Locations', returns
+      ? `${holes}  ·  ${returns} return trip${returns === 1 ? '' : 's'}`
+      : String(holes));
+  }
   // Everybody who worked the job. The crew is recorded per location since
   // 8/28/26, so gather from there and fall back to the visit for older reports.
   field('Technicians', tidyNames(job.visits.flatMap(crewOfVisit)).join(', '));
@@ -392,14 +414,27 @@ export function buildFieldReport(
         .lineWidth(0.5).strokeColor(LINE).stroke();
       doc.y += 8;
 
-      const heading = l.closureCode
-        ?? (l.pmLocationNo ? `Location ${l.pmLocationNo}` : `Location ${li + 1}`);
+      // ---- the heading: B&M's number for this hole, on this job ------------
+      // It used to be whatever the tech typed in the Location box, falling back
+      // to the location's position within THIS visit. Both restart at 1 every
+      // time a crew files, so on 26-349 four crews working four different holes
+      // in one night produced two blocks headed "Location 1" a mile and a half
+      // apart. The number is now assigned across the whole job and repeats only
+      // on a genuine return trip, which says so.
+      //
+      // The tech's number is not lost — it moves to the grey line below as the
+      // customer's own reference, where it cannot collide with ours.
+      const heading = [
+        `Location ${l.jobLocationNo ?? li + 1}`,
+        l.isRevisit ? '— revisit' : null,
+      ].filter(Boolean).join(' ');
       doc.font('Helvetica-Bold').fontSize(11.5).fillColor(TEXT)
         .text(heading, IND, doc.y, { width: IW });
       const sub = [
+        l.closureCode,
         STRUCTURE[l.structureType ?? ''] ?? l.structureType,
         l.structureOwner,
-        l.closureCode && l.pmLocationNo ? `Location ${l.pmLocationNo}` : null,
+        l.pmLocationNo ? `Customer location ${l.pmLocationNo}` : null,
       ].filter(Boolean).join('  ·  ');
       if (sub) {
         doc.font('Helvetica').fontSize(9).fillColor(MUTED)

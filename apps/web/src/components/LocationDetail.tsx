@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { listForLocation, type AttachmentView } from '../lib/attachments';
-import { STRUCTURE_LABELS } from '../lib/types';
+import { STRUCTURE_LABELS, locationTitle } from '../lib/types';
 import { DOWNTIME_REASONS, EXTRA_UNITS, CASE_MATERIALS } from '../lib/options';
 import { footageLabel } from '../lib/num';
 
@@ -96,11 +96,14 @@ export default function LocationDetail({ loc }: { loc: any }) {
       {/* --- the structure itself --- */}
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
-          <strong>{loc.closures?.closure_code ?? `Location ${loc.pm_location_no ?? ''}`}</strong>
+          <strong>{locationTitle(loc)}</strong>
           <div className="muted small">
+            {loc.closures?.closure_code ? `${loc.closures.closure_code} · ` : ''}
             {structure}
             {loc.structure_owner ? ` · ${loc.structure_owner}` : ''}
-            {loc.pm_location_no ? ` · Location #${loc.pm_location_no}` : ''}
+            {/* The customer's own number, not ours. It repeats across a job —
+                that is their filing, not a mistake — so it sits down here. */}
+            {loc.pm_location_no ? ` · Customer location ${loc.pm_location_no}` : ''}
           </div>
         </div>
         <div className="row" style={{ gap: 6 }}>

@@ -26,6 +26,28 @@ export const STRUCTURE_LABELS: Record<StructureType, string> = {
   mh: 'Manhole', hh: 'Handhole', aerial: 'Aerial', building: 'Building',
 };
 
+/**
+ * What a location is called, everywhere — the running record, the detail panel
+ * and the customer's PDF all have to agree.
+ *
+ * B&M's number counts across the JOB and the database hands it out (migration
+ * 0012), so it repeats only on a genuine return trip. Before 8/31 this was
+ * whatever the tech typed, which restarts at 1 every report: 26-349 came out
+ * with two blocks headed "Location 1" a mile and a half apart. Rows filed
+ * before the migration fall back to the typed number, then to a question mark
+ * — an obvious gap beats a confident wrong number.
+ */
+export function locationTitle(l: {
+  job_location_no?: number | null;
+  pm_location_no?: string | null;
+  revisit_of?: string | null;
+}): string {
+  const no = l.job_location_no != null
+    ? String(l.job_location_no)
+    : (l.pm_location_no || '?');
+  return `Location ${no}${l.revisit_of ? ' · revisit' : ''}`;
+}
+
 // Partial leads deliberately: a tech who is not paying attention should leave
 // the job OPEN, not closed. Closing is the destructive direction.
 export const STATUS_FLAGS = [
