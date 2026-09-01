@@ -96,14 +96,14 @@ export default function LocationDetail({ loc }: { loc: any }) {
       {/* --- the structure itself --- */}
       <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
+          {/* number · address · revisit — the same line the customer reads */}
           <strong>{locationTitle(loc)}</strong>
           <div className="muted small">
             {loc.closures?.closure_code ? `${loc.closures.closure_code} · ` : ''}
             {structure}
             {loc.structure_owner ? ` · ${loc.structure_owner}` : ''}
-            {/* The customer's own number, not ours. It repeats across a job —
-                that is their filing, not a mistake — so it sits down here. */}
-            {loc.pm_location_no ? ` · Customer location ${loc.pm_location_no}` : ''}
+            {/* The location number is the heading now — there is only one of
+                them, so it is not repeated down here. */}
           </div>
         </div>
         <div className="row" style={{ gap: 6 }}>
@@ -118,7 +118,7 @@ export default function LocationDetail({ loc }: { loc: any }) {
         </div>
       </div>
 
-      <Field label="Building address" value={loc.building_address} />
+      {/* the address is on the heading now — no need to say it twice */}
       {hasGps && <Field label="GPS" value={`${loc.gps_lat}, ${loc.gps_lng}`} />}
 
       {/* --- the splice work --- */}

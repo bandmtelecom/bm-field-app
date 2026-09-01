@@ -3,11 +3,11 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { uploadAttachment } from '../lib/attachments';
 import { useSession } from '../lib/session';
-import { STATUS_FLAGS } from '../lib/types';
+import { STATUS_FLAGS, locationTitle } from '../lib/types';
 import LocationBlock, { emptyLocation, inferTrayMaterial, type LocationForm, type PriorLocation } from '../components/LocationBlock';
 import { numOrNull, numOr0, splitNames } from '../lib/num';
 import { loadPriorLocations } from '../lib/priorLocations';
-import { previewNumbers } from '../lib/locationNo';
+import { previewPmNumbers } from '../lib/locationNo';
 
 export default function AddVisit() {
   const { id } = useParams();
@@ -51,13 +51,13 @@ export default function AddVisit() {
     setLocations((prev) => prev.map((l, x) => (x === i ? v : l)));
   }
 
-  // The B&M number each block on this screen will end up with. Same arithmetic
-  // the database runs on insert — shown here only so nobody meets the number
-  // for the first time on the customer's report.
-  const nos = previewNumbers(prior, locations);
+  // The number each block will end up with — what the tech typed, or the next
+  // one in line where he left the box empty. Same arithmetic the database runs
+  // on insert, shown here only so nobody meets a different number on the
+  // customer's report.
+  const nos = previewPmNumbers(prior, locations);
   /** How a location is named in a warning, on screen and in the office. */
-  const nameOf = (i: number) =>
-    `Location ${nos[i] ?? i + 1}${locations[i]?.pm_location_no ? ` (PM #${locations[i].pm_location_no})` : ''}`;
+  const nameOf = (i: number) => locationTitle({ pm_location_no: nos[i] ?? String(i + 1) });
 
   async function submit() {
     if (!id || !job) return;
@@ -258,7 +258,7 @@ export default function AddVisit() {
 
         {locations.map((L, i) => (
           <LocationBlock key={i} value={L} index={i} customerId={job?.customer_id ?? null}
-            priorLocations={prior} displayNo={nos[i]}
+            priorLocations={prior} autoNo={nos[i]}
             onChange={(v) => setLoc(i, v)}
             onRemove={() => setLocations((p) => p.filter((_, x) => x !== i))} />
         ))}

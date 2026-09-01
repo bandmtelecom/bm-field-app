@@ -415,26 +415,35 @@ export function buildFieldReport(
       doc.y += 8;
 
       // ---- the heading: B&M's number for this hole, on this job ------------
-      // It used to be whatever the tech typed in the Location box, falling back
-      // to the location's position within THIS visit. Both restart at 1 every
-      // time a crew files, so on 26-349 four crews working four different holes
-      // in one night produced two blocks headed "Location 1" a mile and a half
-      // apart. The number is now assigned across the whole job and repeats only
-      // on a genuine return trip, which says so.
+      // ONE number, and it is the tech's. Austin, 9/1: "the only location number
+      // that goes on the report should be what the tech puts in." Where he left
+      // the box empty the database filled the next one in line on save, so by
+      // the time a report is generated there is always something here.
       //
-      // The tech's number is not lost — it moves to the grey line below as the
-      // customer's own reference, where it cannot collide with ours.
+      // For a day this line carried a second number of B&M's own with the
+      // tech's underneath it. The customer only cares about theirs.
+      //
+      // "Location" goes in front of a plain number and nothing else — the techs
+      // also type "1950 Stemmons", "West" and "Wayne ILA" into that box, and
+      // "Location 1950 Stemmons" reads like a mistake on a customer's report.
+      //
+      // The address joins it on the same line. Austin, 9/1: "i still want to
+      // have the address if that where we went." It was always recorded and
+      // never reached the top line, which is why crews typed "1950 Stemmons"
+      // into the number box to get it in front of the customer.
+      const num = (l.pmLocationNo ?? '').trim()
+        || (l.jobLocationNo != null ? String(l.jobLocationNo) : '');
       const heading = [
-        `Location ${l.jobLocationNo ?? li + 1}`,
-        l.isRevisit ? '— revisit' : null,
-      ].filter(Boolean).join(' ');
+        !num ? 'Location' : (/^\d+$/.test(num) ? `Location ${num}` : num),
+        (l.buildingAddress ?? '').trim() || null,
+        l.isRevisit ? 'revisit' : null,
+      ].filter(Boolean).join('  ·  ');
       doc.font('Helvetica-Bold').fontSize(11.5).fillColor(TEXT)
         .text(heading, IND, doc.y, { width: IW });
       const sub = [
         l.closureCode,
         STRUCTURE[l.structureType ?? ''] ?? l.structureType,
         l.structureOwner,
-        l.pmLocationNo ? `Customer location ${l.pmLocationNo}` : null,
       ].filter(Boolean).join('  ·  ');
       if (sub) {
         doc.font('Helvetica').fontSize(9).fillColor(MUTED)
@@ -447,7 +456,8 @@ export function buildFieldReport(
       // closures the customer's record should say which men were where.
       const holeCrew = tidyNames(l.techs ?? []).join(', ');
       if (holeCrew && holeCrew !== crew) field('Crew', holeCrew);
-      field('Address', l.buildingAddress);
+      // (no Address row — it is on the heading above now, and saying it twice
+      // on one block just makes the report longer)
       if (l.gpsLat != null && l.gpsLng != null) field('GPS', `${l.gpsLat}, ${l.gpsLng}`);
       field('Enclosure', [l.enclosureModel, l.enclosureNew ? '(new)' : null]
         .filter(Boolean).join(' ') || null);

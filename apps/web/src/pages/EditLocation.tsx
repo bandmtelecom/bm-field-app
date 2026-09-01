@@ -5,6 +5,8 @@ import { useSession } from '../lib/session';
 import LocationBlock, { emptyLocation, inferTrayMaterial, type LocationForm, type PriorLocation } from '../components/LocationBlock';
 import { numOrNull, numOr0, splitNames, joinNames } from '../lib/num';
 import { loadPriorLocations } from '../lib/priorLocations';
+import { previewPmNumbers } from '../lib/locationNo';
+import { locationTitle } from '../lib/types';
 
 const str = (v: unknown) => (v == null ? '' : String(v));
 
@@ -227,6 +229,12 @@ export default function EditLocation() {
     }
   }
 
+  // What clearing the box would give this location back. `prior` already
+  // excludes this row, so the number it currently holds does not block itself.
+  const autoNo = form
+    ? previewPmNumbers(prior, [{ pm_location_no: '', revisit_of: form.revisit_of }])[0]
+    : null;
+
   if (err && !form) return (
     <div className="app"><div className="content"><div className="card error">{err}</div></div></div>
   );
@@ -252,20 +260,27 @@ export default function EditLocation() {
               Currently attached to {form.closure_code}.
             </p>
           )}
-          {jobNo != null && (
-            <p className="small" style={{ marginTop: 2 }}>
-              The customer sees this as <strong>Location {jobNo}</strong> on{' '}
-              {meta?.bm ?? 'this job'}
-              {form.revisit_of ? ' — filed as a return trip to that hole.' : '.'}
-              {' '}Change that with the return-trip question below, not by typing
-              a number.
-            </p>
-          )}
+          {/* Austin, 9/1: "we need to make sure we can edit that number after
+              the tech leaves. so if i catch something looking off i can change
+              it from the office." The Location # box below IS that edit — the
+              same box the tech typed into, and whatever is in it is what the
+              customer reads. */}
+          <p className="small" style={{ marginTop: 2 }}>
+            The customer sees this as{' '}
+            <strong>{locationTitle({
+              pm_location_no: form.pm_location_no, job_location_no: jobNo,
+              building_address: form.structure_type === 'building' ? form.building_address : null,
+            })}</strong>{' '}
+            on {meta?.bm ?? 'this job'}
+            {form.revisit_of ? ' — filed as a return trip to that hole.' : '.'}
+            {' '}Change it in the <strong>Location #</strong> box below. Clear it
+            and the app takes the next number in line on this job.
+          </p>
         </div>
 
         <LocationBlock
           value={form} index={0} customerId={customerId}
-          priorLocations={prior} displayNo={jobNo} excludeLocationId={id ?? null}
+          priorLocations={prior} autoNo={autoNo} excludeLocationId={id ?? null}
           onChange={setForm}
           onRemove={() => nav(jobId ? `/jobs/${jobId}` : '/')}
         />

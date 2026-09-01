@@ -23,7 +23,7 @@ export async function loadPriorLocations(
     .from('locations')
     .select(`
       id, job_location_no, pm_location_no, closure_id, structure_type, structure_owner,
-      gps_lat, gps_lng, revisit_of,
+      building_address, gps_lat, gps_lng, revisit_of,
       closures(closure_code),
       cables(direction, count, manufacturer, ordinal),
       visits!inner(visit_date, job_id)
@@ -47,6 +47,7 @@ export async function loadPriorLocations(
       closure_code: r.closures?.closure_code ?? null,
       structure_type: r.structure_type ?? null,
       structure_owner: r.structure_owner ?? null,
+      building_address: r.building_address ?? null,
       gps_lat: r.gps_lat != null ? Number(r.gps_lat) : null,
       gps_lng: r.gps_lng != null ? Number(r.gps_lng) : null,
       visit_date: r.visits?.visit_date ?? null,

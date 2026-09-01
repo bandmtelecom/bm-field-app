@@ -30,22 +30,49 @@ export const STRUCTURE_LABELS: Record<StructureType, string> = {
  * What a location is called, everywhere — the running record, the detail panel
  * and the customer's PDF all have to agree.
  *
- * B&M's number counts across the JOB and the database hands it out (migration
- * 0012), so it repeats only on a genuine return trip. Before 8/31 this was
- * whatever the tech typed, which restarts at 1 every report: 26-349 came out
- * with two blocks headed "Location 1" a mile and a half apart. Rows filed
- * before the migration fall back to the typed number, then to a question mark
- * — an obvious gap beats a confident wrong number.
+ * There is ONE number and it is the tech's. Austin, 9/1: *"the only location
+ * number that goes on the report should be what the tech puts in"* — and when
+ * he puts nothing in, the database fills the next one in line (migration 0013),
+ * which lands in the same box and the office can change it afterwards.
+ *
+ * `job_location_no` is internal bookkeeping now and only stands in for rows
+ * filed before 0013 that somehow escaped the backfill.
+ *
+ * The word "Location" goes in front of a plain number and nowhere else. The
+ * techs also type names into that box — "1950 Stemmons", "West", "Wayne ILA" —
+ * and "Location 1950 Stemmons" reads like a mistake on a customer's report.
+ */
+export function locationNumberLabel(l: {
+  job_location_no?: number | null;
+  pm_location_no?: string | null;
+}): string {
+  const typed = (l.pm_location_no ?? '').trim();
+  const no = typed || (l.job_location_no != null ? String(l.job_location_no) : '');
+  if (!no) return 'Location';
+  return /^\d+$/.test(no) ? `Location ${no}` : no;
+}
+
+/**
+ * The whole label: the number, then WHERE it was, then whether it was a return
+ * trip. `Location 2 · 1950 Stemmons`, or just `Location 2` on a hole.
+ *
+ * Austin, 9/1: *"i still want to have the address if that where we went."* The
+ * address has always been recorded — it just never reached the top line, so
+ * crews were typing "1950 Stemmons" into the number box to get it onto the
+ * report, which is how one box ended up doing three jobs. The number says which
+ * location; the address says where; neither has to pretend to be the other.
  */
 export function locationTitle(l: {
   job_location_no?: number | null;
   pm_location_no?: string | null;
+  building_address?: string | null;
   revisit_of?: string | null;
 }): string {
-  const no = l.job_location_no != null
-    ? String(l.job_location_no)
-    : (l.pm_location_no || '?');
-  return `Location ${no}${l.revisit_of ? ' · revisit' : ''}`;
+  return [
+    locationNumberLabel(l),
+    (l.building_address ?? '').trim() || null,
+    l.revisit_of ? 'revisit' : null,
+  ].filter(Boolean).join(' · ');
 }
 
 // Partial leads deliberately: a tech who is not paying attention should leave

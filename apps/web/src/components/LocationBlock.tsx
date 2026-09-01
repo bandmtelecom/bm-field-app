@@ -5,7 +5,7 @@ import {
   ENCLOSURE_MODELS, STRUCTURE_OWNERS, MANUFACTURERS, DOWNTIME_REASONS,
   CASE_MATERIALS, EXTRA_UNITS, inferTrayMaterial, inferCaseMaterial,
 } from '../lib/options';
-import { STRUCTURE_LABELS } from '../lib/types';
+import { STRUCTURE_LABELS, locationTitle } from '../lib/types';
 import { parseNum, splitNames } from '../lib/num';
 import { lastCablesForClosure, lastCablesForLocation, cableLabel } from '../lib/closures';
 import {
@@ -74,7 +74,7 @@ export function emptyLocation(): LocationForm {
 }
 
 export default function LocationBlock({
-  value, index, customerId, priorLocations = [], displayNo = null,
+  value, index, customerId, priorLocations = [], autoNo = null,
   excludeLocationId = null, onChange, onRemove,
 }: {
   value: LocationForm; index: number; customerId?: string | null;
@@ -83,10 +83,10 @@ export default function LocationBlock({
   /** The location being edited, on the office Edit screen — so it is never
    *  offered its own cables back as though they came from a previous trip. */
   excludeLocationId?: string | null;
-  /** The B&M location number this block will end up with. The database is what
-   *  actually assigns it; this is the same arithmetic, shown early so nobody is
-   *  surprised by the report. */
-  displayNo?: number | null;
+  /** The number this location gets if the box is left empty. The database is
+   *  what actually assigns it (migration 0013); this is the same arithmetic,
+   *  shown early so nobody meets a different number on the report. */
+  autoNo?: string | null;
   onChange: (v: LocationForm) => void; onRemove: () => void;
 }) {
   const set = (patch: Partial<LocationForm>) => onChange({ ...value, ...patch });
@@ -221,20 +221,25 @@ export default function LocationBlock({
 
   return (
     <div className="block">
-      {/* ---- which location this is, on the WHOLE job ----------------------
-          The number used to be whatever the tech typed, falling back to the
-          position in this one report — and both restart at 1 every time a crew
-          files. On 26-349 four crews worked four different holes in one night
-          and the customer's report had two blocks headed "Location 1" a mile
-          and a half apart.
+      {/* ---- which location this is ----------------------------------------
+          ONE number, and it is the box below. Austin, 9/1: "the only location
+          number that goes on the report should be what the tech puts in."
 
-          B&M's number now counts across the job and the database hands it out,
-          so two men filing at the same time cannot land on the same one. It is
-          a label: nothing on the invoice reads it. */}
+          For a day this heading carried a second number of B&M's own, counted
+          across the job, while the tech's sat underneath it — two numbers on
+          one block, and the customer only cares about theirs. So the heading
+          just reads back what is in the box, and when the box is empty it shows
+          the number the database will put there on save. Same arithmetic both
+          sides, so nobody meets a different number on the report. */}
       <div className="head">
         <strong>
-          Location {revisitTarget?.job_location_no ?? displayNo ?? index + 1}
-          {revisitTarget ? ' · revisit' : ''}
+          {locationTitle({
+            pm_location_no: value.pm_location_no.trim() || autoNo || null,
+            // The address rides the same line, so a man in a building sees the
+            // report line forming as he types it.
+            building_address: isBuilding ? value.building_address : null,
+            revisit_of: value.revisit_of,
+          })}
         </strong>
         <button className="rm" onClick={onRemove}>Remove</button>
       </div>
@@ -276,7 +281,11 @@ export default function LocationBlock({
           {revisitTarget ? (
             <div className="card" style={{ borderColor: 'var(--ok)', marginTop: 6 }}>
               <strong className="small">
-                This goes on the report as Location {revisitTarget.job_location_no ?? '—'} again
+                This goes on the report as{' '}
+                {locationTitle({
+                  pm_location_no: revisitTarget.pm_location_no,
+                  building_address: revisitTarget.building_address,
+                })} again
                 {revisitTarget.closure_code ? ` (${revisitTarget.closure_code})` : ''}.
               </strong>
               <p className="muted small" style={{ marginTop: 4 }}>
@@ -296,12 +305,17 @@ export default function LocationBlock({
 
       <div className="row">
         <div>
-          {/* The customer's own number, not B&M's. It may repeat, it may be
-              blank, and it rides on the small grey line of the report. Before
-              8/31 this box WAS the heading, which is how four crews each typed
-              a "1" and the report ended up with four of them. */}
-          <label>Customer's location # <span className="muted">(optional)</span></label>
-          <input value={value.pm_location_no} placeholder="what the PM calls it"
+          {/* THE location number, and only the number. Type whatever the job
+              calls it — 5, 1a, 2b. Leave it empty and the database fills the
+              next one in line on save; the office can change it later.
+
+              The address does NOT belong in here. It has its own box below
+              whenever the structure is a Building, and it reaches the top line
+              of the report from there — which is what crews were trying to do
+              by typing "1950 Stemmons" into this box. */}
+          <label>Location #</label>
+          <input value={value.pm_location_no}
+            placeholder={autoNo ? `blank = ${autoNo}` : 'e.g. 5'}
             onChange={(e) => set({ pm_location_no: e.target.value })} />
         </div>
         <div>
@@ -337,10 +351,17 @@ export default function LocationBlock({
         </p>
       )}
 
+      {/* Where it was. Building only, the way it has always been — but it now
+          rides the top line of the report next to the number, so this is where
+          "1950 Stemmons" belongs instead of in the number box. */}
       {isBuilding && (
         <>
           <label>Building address</label>
-          <input value={value.building_address} onChange={(e) => set({ building_address: e.target.value })} />
+          <input value={value.building_address} placeholder="1950 Stemmons"
+            onChange={(e) => set({ building_address: e.target.value })} />
+          <p className="muted small" style={{ marginTop: 4 }}>
+            This goes on the report next to the location number.
+          </p>
         </>
       )}
 
@@ -678,11 +699,13 @@ export default function LocationBlock({
  */
 export function priorLabel(p: PriorLocation): string {
   const bits = [
-    `Location ${p.job_location_no ?? '?'}`,
+    locationTitle({
+      pm_location_no: p.pm_location_no, job_location_no: p.job_location_no,
+      building_address: p.building_address,
+    }),
     p.closure_code,
     STRUCTURE_LABELS[p.structure_type as keyof typeof STRUCTURE_LABELS] ?? p.structure_type,
     p.cables.length ? p.cables.join(' / ') : null,
-    p.pm_location_no ? `PM #${p.pm_location_no}` : null,
     p.visit_date,
   ].filter(Boolean);
   return bits.join(' · ');
