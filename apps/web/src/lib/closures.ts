@@ -3,6 +3,10 @@ import { footageLabel } from './num';
 import {
   cableToForm, pickLatestWithCables, type CableSuggestion,
 } from './cableSuggest';
+import type { ClosureListItem } from './closureLabel';
+
+// The label itself lives in closureLabel.ts — pure, so it can be tested.
+export type { ClosureListItem };
 
 /**
  * The closure registry — B&M's permanent list of the closures it has worked.
@@ -181,6 +185,48 @@ export async function closuresNear(
     distanceFt: Math.round(near[i].d),
     bearing: bearingLabel(lat, lng, Number(near[i].gps_lat), Number(near[i].gps_lng)),
   }));
+}
+
+// ---------------------------------------------------------------------------
+// The list you can just open and pick from.
+//
+// Austin, 8/25 — asked for, and deferred seven times while more urgent things
+// came up: *"there should be a way we can search closures when we are not close
+// to them... make a drop down where we can just click on lumen-003."*
+//
+// Everything else in this file starts from where the tech is standing, or from
+// him typing a code he already knows. Neither helps a man who wants Lumen-0003
+// and is nowhere near it, or the office back-entering a paper report.
+//
+// Deliberately LIGHT: no cables, no visit counts. Those need a second query per
+// closure and the list is only there to pick from — the cables load for the one
+// he picks, which is when they matter, because matching cables is what actually
+// identifies a hole.
+// ---------------------------------------------------------------------------
+export async function listClosures(
+  customerId: string,
+  limit = 500,
+): Promise<ClosureListItem[]> {
+  const { data, error } = await supabase
+    .from('closures')
+    .select('id, closure_code, structure_type, structure_owner, building_address, enclosure_model, gps_lat, gps_lng, created_at')
+    .eq('customer_id', customerId)
+    .order('closure_code')
+    .limit(limit);
+  if (error) throw error;
+
+  return ((data as any[]) ?? []).map((c) => ({
+    ...c,
+    hasGps: c.gps_lat != null && c.gps_lng != null,
+  }));
+}
+
+/** One closure with its cables and history — what to show once he has picked. */
+export async function closureWithCables(id: string): Promise<ClosureCandidate | null> {
+  const row = await getClosure(id);
+  if (!row) return null;
+  const [decorated] = await decorate([row]);
+  return decorated ?? null;
 }
 
 /** Look a closure up by code — the office path when back-entering paper reports. */

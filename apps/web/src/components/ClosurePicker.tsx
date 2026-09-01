@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import {
-  closuresNear, searchClosures, cableLabel, CANDIDATE_RADIUS_FT,
+  closuresNear, searchClosures, listClosures, closureWithCables,
+  cableLabel, CANDIDATE_RADIUS_FT,
   type ClosureCandidate,
 } from '../lib/closures';
+import { closureOptionLabel, type ClosureListItem } from '../lib/closureLabel';
 import { STRUCTURE_LABELS } from '../lib/types';
+import { numOrNull } from '../lib/num';
 
 /**
  * Which closure is this?
@@ -31,19 +34,53 @@ export default function ClosurePicker({
   const [term, setTerm] = useState('');
   const [results, setResults] = useState<ClosureCandidate[] | null>(null);
   const [showSearch, setShowSearch] = useState(false);
+  /** Every closure on this customer, for the pick-from-the-list dropdown. */
+  const [all, setAll] = useState<ClosureListItem[] | null>(null);
+  /** The one picked from the list, fetched with its cables so he can check it. */
+  const [picked, setPicked] = useState<ClosureCandidate | null>(null);
 
-  const hasGps = !!lat && !!lng && !Number.isNaN(Number(lat)) && !Number.isNaN(Number(lng));
+  // A tech types "35.4 N" into these boxes. Raw Number() turns that into NaN,
+  // which quietly switched proximity search off with nothing on screen saying
+  // so — the same class of bug as the km values that vanished in August.
+  const latN = numOrNull(lat);
+  const lngN = numOrNull(lng);
+  const hasGps = latN != null && lngN != null;
 
   // whenever GPS lands (or changes), re-look for candidates
   useEffect(() => {
     let alive = true;
-    if (!customerId || !hasGps) { setCandidates(null); return; }
+    if (!customerId || latN == null || lngN == null) { setCandidates(null); return; }
     setBusy(true);
-    closuresNear(customerId, Number(lat), Number(lng))
+    closuresNear(customerId, latN, lngN)
       .then((r) => { if (alive) { setCandidates(r); setBusy(false); } })
       .catch(() => { if (alive) { setCandidates([]); setBusy(false); } });
     return () => { alive = false; };
-  }, [customerId, lat, lng, hasGps]);
+  }, [customerId, latN, lngN]);
+
+  // The whole list, loaded once. It does not depend on where he is standing —
+  // that is the entire point of it.
+  useEffect(() => {
+    let alive = true;
+    if (!customerId) { setAll(null); return; }
+    listClosures(customerId)
+      .then((r) => { if (alive) setAll(r); })
+      .catch((e) => {
+        if (alive) setAll([]);
+        console.error('could not load the closure list', e);
+      });
+    return () => { alive = false; };
+  }, [customerId]);
+
+  // Whatever is selected, show its cables. That is how a man confirms he picked
+  // the right one — GPS never settles it, cables do.
+  useEffect(() => {
+    let alive = true;
+    if (!selectedId) { setPicked(null); return; }
+    closureWithCables(selectedId)
+      .then((c) => { if (alive) setPicked(c); })
+      .catch(() => { if (alive) setPicked(null); });
+    return () => { alive = false; };
+  }, [selectedId]);
 
   async function runSearch(q: string) {
     setTerm(q);
@@ -109,12 +146,11 @@ export default function ClosurePicker({
         </div>
       )}
 
-      {!hasGps && !showSearch && (
+      {!hasGps && (
         <p className="muted small">
           Grab the GPS above and any closures we've already worked nearby will show up here,
-          with the cables we recorded, so you can tell which one you're in.{' '}
-          <button type="button" className="addline" style={{ width: 'auto', padding: '2px 8px' }}
-            onClick={() => setShowSearch(true)}>Look one up by code instead</button>
+          with the cables we recorded, so you can tell which one you're in — or pick one
+          from the list below.
         </p>
       )}
 
@@ -137,6 +173,72 @@ export default function ClosurePicker({
         </>
       )}
 
+      {/* ---- pick one from the list ------------------------------------------
+          Austin, 8/25: "there should be a way we can search closures when we are
+          not close to them... make a drop down where we can just click on
+          lumen-003."
+
+          Everything above this starts from where the man is standing. This does
+          not, which is the whole point: the office back-entering a paper report,
+          a crew sent to a closure they have not reached yet, or anyone whose GPS
+          will not lock in a downtown manhole. Always visible, never behind a
+          button, and it needs no typing. */}
+      {all && all.length > 0 && (
+        <div style={{ marginTop: 10 }}>
+          <label>Or pick one from the list ({all.length} on record)</label>
+          <select
+            value={selectedId ?? ''}
+            onChange={(e) => {
+              const id = e.target.value || null;
+              const hit = id ? all.find((c) => c.id === id) ?? null : null;
+              onSelect(id, hit?.closure_code ?? null);
+            }}
+          >
+            <option value="">— pick a closure —</option>
+            {all.map((c) => (
+              <option key={c.id} value={c.id}>{closureOptionLabel(c)}</option>
+            ))}
+          </select>
+
+          {/* Picked from a list, so he has NOT seen the cables yet. Show them.
+              A code chosen off a list is a guess until it matches what is in
+              front of him. */}
+          {picked && (
+            <div className="card" style={{ borderColor: 'var(--ok)', marginTop: 8 }}>
+              <strong className="small">{picked.closure_code}</strong>
+              <div className="muted small">
+                {STRUCTURE_LABELS[picked.structure_type as keyof typeof STRUCTURE_LABELS]
+                  ?? picked.structure_type}
+                {picked.structure_owner ? ` · ${picked.structure_owner}` : ''}
+                {picked.building_address ? ` · ${picked.building_address}` : ''}
+              </div>
+              {picked.cables.length > 0 ? (
+                <>
+                  <div className="muted" style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '.04em', marginTop: 6 }}>
+                    Cables on record
+                  </div>
+                  {picked.cables.map((cb, i) => (
+                    <div key={i} className="small">• {cableLabel(cb)}</div>
+                  ))}
+                  <p className="muted small" style={{ marginTop: 6 }}>
+                    If that isn't what you're looking at, it's a different closure.
+                  </p>
+                </>
+              ) : (
+                <div className="muted small" style={{ marginTop: 6 }}>
+                  No cables recorded here yet — check the GPS and the structure.
+                </div>
+              )}
+              <div className="muted small" style={{ marginTop: 6 }}>
+                {picked.visitCount > 0
+                  ? `Worked ${picked.visitCount} time(s)${picked.lastWorked ? `, last ${picked.lastWorked}` : ''}`
+                  : 'Never worked'}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* explicit "this is a new one" so nothing is attached by accident */}
       <button
         type="button"
@@ -155,7 +257,9 @@ export default function ClosurePicker({
         </div>
       </button>
 
-      {(showSearch || (!hasGps && showSearch)) && (
+      {/* Typing still beats scrolling once the registry is long — kept for the
+          office, and for the day the list runs to hundreds. */}
+      {showSearch ? (
         <div style={{ marginTop: 10 }}>
           <label>Find a closure by code</label>
           <input value={term} placeholder="Lumen-0042"
@@ -165,11 +269,9 @@ export default function ClosurePicker({
           )}
           {results?.map((c) => <Card key={c.id} c={c} />)}
         </div>
-      )}
-
-      {hasGps && !showSearch && (
+      ) : (
         <button type="button" className="addline" style={{ marginTop: 8 }}
-          onClick={() => setShowSearch(true)}>Search by closure code</button>
+          onClick={() => setShowSearch(true)}>Type a closure code instead</button>
       )}
     </div>
   );

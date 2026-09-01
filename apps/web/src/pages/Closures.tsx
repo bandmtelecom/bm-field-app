@@ -3,9 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { kmlUrl } from '../lib/api';
 import {
-  closuresNear, searchClosures, cableLabel, distanceLabel,
+  closuresNear, searchClosures, listClosures, cableLabel, distanceLabel,
   BROWSE_RADII_FT, type ClosureCandidate,
 } from '../lib/closures';
+import { closureOptionLabel, type ClosureListItem } from '../lib/closureLabel';
 import { STRUCTURE_LABELS } from '../lib/types';
 
 /**
@@ -20,7 +21,11 @@ export default function Closures() {
   const [customers, setCustomers] = useState<{ id: string; name: string }[]>([]);
   const [customerId, setCustomerId] = useState('');
   const [rows, setRows] = useState<ClosureCandidate[] | null>(null);
-  const [mode, setMode] = useState<'near' | 'search'>('near');
+  const [mode, setMode] = useState<'near' | 'search' | 'all'>('near');
+  /** The whole registry for this customer — the way in that needs no GPS and
+   *  no typing. Austin, 8/25: "a drop down where we can just click on
+   *  lumen-003." */
+  const [all, setAll] = useState<ClosureListItem[] | null>(null);
   const [term, setTerm] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
@@ -50,7 +55,7 @@ export default function Closures() {
   function findNearMe() {
     if (!customerId) { setMsg('Pick the customer first.'); return; }
     if (!navigator.geolocation) { setMsg('This phone will not give up its location.'); return; }
-    setBusy(true); setMsg(null); setMode('near');
+    setBusy(true); setMsg(null); setMode('near'); setAll(null);
     navigator.geolocation.getCurrentPosition(
       (p) => {
         const here = { lat: p.coords.latitude, lng: p.coords.longitude };
@@ -70,8 +75,21 @@ export default function Closures() {
 
   const nextRadius = BROWSE_RADII_FT.find((r) => r.ft > radiusFt)?.ft ?? null;
 
+  async function showAll() {
+    if (!customerId) { setMsg('Pick the customer first.'); return; }
+    setBusy(true); setMsg(null); setMode('all'); setRows(null);
+    try {
+      const list = await listClosures(customerId);
+      setAll(list);
+      setMsg(list.length ? null : 'No closures on record for this customer yet.');
+    } catch (e: any) {
+      setMsg(`Could not load the list: ${e?.message ?? 'unknown error'}`);
+    }
+    setBusy(false);
+  }
+
   async function runSearch(q: string) {
-    setTerm(q); setMode('search'); setMsg(null);
+    setTerm(q); setMode('search'); setMsg(null); setAll(null);
     if (q.trim().length < 2) { setRows(null); return; }
     setBusy(true);
     setRows(await searchClosures(q, customerId || undefined));
@@ -117,11 +135,40 @@ export default function Closures() {
             {busy && mode === 'near' ? 'Looking…' : '📍 Closures near me'}
           </button>
 
+          <div style={{ height: 8 }} />
+          {/* No GPS, no typing — just the list. This is the one that was asked
+              for on 8/25 and kept getting bumped. */}
+          <button className="btn" onClick={showAll} disabled={busy}>
+            {busy && mode === 'all' ? 'Loading…' : '📋 Show every closure'}
+          </button>
+
           <label style={{ marginTop: 12 }}>Or find one by number</label>
           <input value={term} placeholder="Lumen-0042" onChange={(e) => runSearch(e.target.value)} />
 
           {msg && <div className="muted small" style={{ marginTop: 8 }}>{msg}</div>}
         </div>
+
+        {/* The list: one tappable line each, code first because that is what a
+            man is looking for. Tapping opens the closure's full history. */}
+        {mode === 'all' && all && all.length > 0 && (
+          <div className="card">
+            <strong className="small">{all.length} closures</strong>
+            <div style={{ marginTop: 6 }}>
+              {all.map((c) => (
+                <button key={c.id} type="button"
+                  onClick={() => nav(`/closures/${c.id}`)}
+                  style={{
+                    display: 'block', width: '100%', textAlign: 'left',
+                    padding: '8px 0', background: 'transparent', border: 0,
+                    borderBottom: '1px solid var(--line)', font: 'inherit',
+                    color: 'inherit', cursor: 'pointer',
+                  }}>
+                  {closureOptionLabel(c)}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {rows?.map((c) => (
           <div key={c.id} className="card" style={{ cursor: 'pointer' }}
