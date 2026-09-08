@@ -30,7 +30,6 @@ export default function EditLocation() {
 
   const [form, setForm] = useState<LocationForm | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
-  const [visitId, setVisitId] = useState<string | null>(null);
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [meta, setMeta] = useState<{ visitDate?: string; bm?: string } | null>(null);
   const [busy, setBusy] = useState(false);
@@ -62,7 +61,6 @@ export default function EditLocation() {
 
       const a: any = l;
       setJobId(a.visits?.job_id ?? null);
-      setVisitId(a.visits?.id ?? null);
       setCustomerId(a.visits?.jobs?.customer_id ?? null);
       setMeta({ visitDate: a.visits?.visit_date, bm: a.visits?.jobs?.bm_number });
       setJobNo(a.job_location_no ?? null);
@@ -207,21 +205,10 @@ export default function EditLocation() {
           ordinal: i,
         })));
 
-      // Keep the visit's crew list as the union of its locations, so the running
-      // record and the field-report header still name everybody who was out
-      // that night. Nothing bills off it — the engine reads the location crews —
-      // so a failure here is cosmetic and must not lose the correction above.
-      if (visitId) {
-        const { data: sibs } = await supabase
-          .from('locations').select('techs').eq('visit_id', visitId);
-        const everyone = splitNames(
-          (sibs ?? []).flatMap((r: any) => (Array.isArray(r.techs) ? r.techs : [])).join(', '),
-        );
-        const { error: vErr } = await supabase
-          .from('visits').update({ techs: everyone }).eq('id', visitId);
-        if (vErr) console.error('could not refresh the visit crew list', vErr);
-      }
-
+      // The visit's crew list (the union of its locations) is kept by the
+      // database now — trigger trg_sync_visit_techs, migration 0014. It used to
+      // be recomputed here, which a second man on somebody else's visit could
+      // not write once only the lead may touch the visit row.
       nav(jobId ? `/jobs/${jobId}` : '/');
     } catch (e: any) {
       setErr(e.message ?? 'Could not save the change.');

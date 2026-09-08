@@ -20,6 +20,9 @@ export interface Visit {
   id: string; job_id: string; visit_date: string; report_type: string;
   techs: string[]; narrative: string | null; status_flag: string | null;
   lead_hours: number | null; reporter_id: string | null;
+  /** open = the lead started it and the crew can still add locations;
+   *  closed = finished (migration 0014). Rows filed before 0014 are closed. */
+  status: 'open' | 'closed';
 }
 
 export const STRUCTURE_LABELS: Record<StructureType, string> = {

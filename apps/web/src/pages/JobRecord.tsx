@@ -5,6 +5,7 @@ import { useSession } from '../lib/session';
 import { markJobComplete, downloadFieldReport, reopenJob, markJobInvoiced, unarchiveJob } from '../lib/api';
 import { STRUCTURE_LABELS, STATUS_FLAGS, locationTitle } from '../lib/types';
 import LocationDetail from '../components/LocationDetail';
+import { todayLocal } from '../lib/num';
 
 // Every column the read-only detail panel needs, pulled in one query with the
 // visit so tapping a location is instant (child tables load on demand).
@@ -20,7 +21,7 @@ const LOCATION_COLS = `
 export default function JobRecord() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { profile } = useSession();
+  const { profile, userId } = useSession();
   const [job, setJob] = useState<any | null>(null);
   const [visits, setVisits] = useState<any[]>([]);
   const [openLoc, setOpenLoc] = useState<string | null>(null);
@@ -47,13 +48,47 @@ export default function JobRecord() {
       .eq('id', id).single();
     setJob(j as any);
     const { data: v } = await supabase.from('visits')
-      .select(`id, visit_date, report_type, techs, narrative, status_flag, lead_hours, locations(${LOCATION_COLS})`)
-      .eq('job_id', id).order('visit_date', { ascending: true });
+      .select(`id, visit_date, report_type, techs, narrative, status_flag, lead_hours, status, reporter_id, lead_start,
+               reporter:profiles!visits_reporter_id_fkey(full_name), locations(${LOCATION_COLS})`)
+      .eq('job_id', id).order('visit_date', { ascending: true }).order('created_at', { ascending: true });
     setVisits((v as any) ?? []);
   }
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
 
   const isOffice = profile?.role === 'office' || profile?.role === 'admin';
+  /** Visits the lead has started and not yet finished — anyone can add a
+   *  location to these. Usually one; more than one means somebody forgot. */
+  const openVisits = visits.filter((v) => v.status === 'open');
+
+  /**
+   * The lead starts the visit. Austin, 9/8: "im wanting to have the lead tech
+   * start the visit on a job." It exists from this moment, empty, so the men
+   * in the other hole have something to add their location onto. Whoever taps
+   * this is the lead — he is the one who finishes it.
+   */
+  async function startVisit() {
+    if (!id) return;
+    setBusy(true); setMsg(null);
+    const { data, error } = await supabase.from('visits').insert({
+      job_id: id, reporter_id: userId, visit_date: todayLocal(),
+      status: 'open', lead_start: new Date().toISOString(), techs: [],
+    }).select('id').single();
+    setBusy(false);
+    if (error || !data) { setMsg(error?.message ?? 'Could not start the visit.'); return; }
+    nav(`/jobs/${id}/visits/${data.id}/add-location`);
+  }
+
+  /** Office only: put a finished visit back in front of the crew. */
+  async function reopenVisit(visitId: string) {
+    setVBusy(true); setVErr(null);
+    const { error } = await supabase.from('visits')
+      .update({ status: 'open', lead_finish: null, closed_by: null })
+      .eq('id', visitId).select('id').single();
+    setVBusy(false);
+    if (error) { setVErr(error.message); return; }
+    setEditVisit(null);
+    await load();
+  }
 
   async function complete() {
     if (!id) return;
@@ -161,12 +196,23 @@ export default function JobRecord() {
         </h3>
         {visits.map((v) => {
           const locs = [...(v.locations ?? [])].sort((a: any, b: any) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
+          const isOpen = v.status === 'open';
+          const isLead = v.reporter_id === userId;
+          const leadName = v.reporter?.full_name ?? null;
           return (
-            <div key={v.id} className="card">
+            <div key={v.id} className="card" style={isOpen ? { borderColor: 'var(--ok)' } : undefined}>
               <div className="row" style={{ justifyContent: 'space-between' }}>
                 <strong>{v.visit_date}</strong>
                 <span className="small muted">{(v.techs ?? []).join(', ')}</span>
               </div>
+              {/* An open visit is the one the crew is out on right now. Every
+                  man on the job adds his own hole to it; the lead finishes it. */}
+              {isOpen && (
+                <div className="small" style={{ marginTop: 6, color: 'var(--ok)', fontWeight: 600 }}>
+                  ● OPEN — started by {isLead ? 'you' : (leadName ?? 'the lead')}
+                  {v.lead_start ? ` · ${new Date(v.lead_start).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''}
+                </div>
+              )}
               <div className="row" style={{ gap: 6, marginTop: 6 }}>
                 {v.status_flag && <span className="pill">{v.status_flag.replace(/_/g, ' ')}</span>}
                 {v.report_type && v.report_type !== 'splice' && <span className="pill">{v.report_type.replace(/_/g, ' ')}</span>}
@@ -196,6 +242,18 @@ export default function JobRecord() {
                   <button className="btn ghost" disabled={vBusy} onClick={() => setEditVisit(null)}>
                     Cancel
                   </button>
+                  {!isOpen && (
+                    <>
+                      <div style={{ height: 8 }} />
+                      <button className="btn ghost" disabled={vBusy} onClick={() => reopenVisit(v.id)}>
+                        ↩ Reopen for the crew
+                      </button>
+                      <p className="muted small" style={{ marginTop: 4 }}>
+                        Lets the men add locations to this visit again. The lead
+                        finishes it when they are done.
+                      </p>
+                    </>
+                  )}
                 </div>
               ) : (
                 <>
@@ -241,22 +299,72 @@ export default function JobRecord() {
                   </div>
                 );
               })}
-              {!locs.length && <div className="muted small" style={{ marginTop: 6 }}>No locations logged on this visit.</div>}
+              {!locs.length && <div className="muted small" style={{ marginTop: 6 }}>No locations logged on this visit{isOpen ? ' yet' : ''}.</div>}
+
+              {isOpen && job.status !== 'complete' && (
+                <>
+                  <div style={{ height: 10 }} />
+                  <button className="btn accent" onClick={() => nav(`/jobs/${id}/visits/${v.id}/add-location`)}>
+                    ＋ Add my location
+                  </button>
+                  {(isLead || isOffice) && (
+                    <>
+                      <div style={{ height: 8 }} />
+                      <button className="btn ok" onClick={() => nav(`/jobs/${id}/visits/${v.id}/finish`)}>
+                        ✔ Finish visit
+                      </button>
+                      <p className="muted small" style={{ marginTop: 4 }}>
+                        {isLead ? 'You started this one, so you write the summary and close it when everyone is done.'
+                                : `${leadName ?? 'The lead'} started this one. The office can finish it if he can't.`}
+                      </p>
+                    </>
+                  )}
+                  {!isLead && !isOffice && (
+                    <p className="muted small" style={{ marginTop: 6 }}>
+                      {leadName ?? 'The lead'} started this visit and will finish it. Add your hole above.
+                    </p>
+                  )}
+                </>
+              )}
             </div>
           );
         })}
-        {!visits.length && <div className="card muted small">No visits yet. Add the first one.</div>}
+        {!visits.length && <div className="card muted small">No visits yet. The lead starts the first one.</div>}
 
         {msg && <div className="card small" style={{ borderColor: 'var(--ok)' }}>{msg}</div>}
 
         {job.status !== 'complete' && (
           <>
-            <button className="btn accent" onClick={() => nav(`/jobs/${id}/add`)}>＋ Add my visit</button>
+            {/* The lead starts the visit; everybody else adds onto it. When one
+                is already open the button steps back — a second crew on the
+                same job the same night is rare, and adding onto the open visit
+                is almost always what is wanted. */}
+            {openVisits.length === 0 ? (
+              <button className="btn accent" disabled={busy} onClick={startVisit}>
+                {busy ? 'Starting…' : '▶ Start a visit'}
+              </button>
+            ) : (
+              <>
+                <button className="btn ghost" disabled={busy} onClick={startVisit}>
+                  {busy ? 'Starting…' : '▶ Start a separate visit'}
+                </button>
+                <p className="muted small" style={{ marginTop: 4 }}>
+                  Only if tonight's work is not part of the open visit above. Same
+                  job, same night — add your location to it instead.
+                </p>
+              </>
+            )}
             <div style={{ height: 10 }} />
 
             {/* Two taps, on purpose. One tap used to close the job, build the
                 invoice and hide these buttons, with no way back except SQL. */}
-            {!confirming ? (
+            {openVisits.length > 0 ? (
+              <div className="card small">
+                <strong>A visit is still open</strong> — started by{' '}
+                {openVisits.map((v) => v.reporter_id === userId ? 'you' : (v.reporter?.full_name ?? 'the lead')).join(', ')}.
+                {' '}Finish it before marking the job complete, so tonight's work is on the invoice.
+              </div>
+            ) : !confirming ? (
               <button className="btn ok" disabled={busy} onClick={() => setConfirming(true)}>
                 🏁 Mark job complete
               </button>

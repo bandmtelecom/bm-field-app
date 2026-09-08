@@ -92,3 +92,15 @@ export function splitNames(s: unknown): string[] {
 /** The crew back in one line for a text box. */
 export const joinNames = (names: unknown): string =>
   (Array.isArray(names) ? names : []).map((n) => String(n).trim()).filter(Boolean).join(', ');
+
+/**
+ * Today's date as the crew would write it — LOCAL, yyyy-mm-dd.
+ *
+ * `new Date().toISOString().slice(0, 10)` is UTC, and at 9pm in Texas UTC is
+ * already tomorrow. A visit started at 9pm on the 8th was being dated the 9th.
+ * Night work is most of the LOR work, so this was wrong more often than not.
+ */
+export function todayLocal(d: Date = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
