@@ -3,7 +3,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
 import { STATUS_FLAGS, locationTitle } from '../lib/types';
-import { numOrNull } from '../lib/num';
+import { todayLocal, numOrNull } from '../lib/num';
+import { visitDateProblem, isBackdated, shortDay } from '../lib/visitDate';
 
 /**
  * The lead finishes the visit.
@@ -17,6 +18,7 @@ import { numOrNull } from '../lib/num';
  * Finishing closes the visit. Nothing about the JOB changes — "Mark job
  * complete" is still its own decision on the job screen.
  */
+
 export default function FinishVisit() {
   const { id: jobId, visitId } = useParams();
   const nav = useNavigate();
@@ -29,6 +31,8 @@ export default function FinishVisit() {
   // field, and the safe direction to skim in is "we're coming back".
   const [statusFlag, setStatusFlag] = useState<string>('partial_return');
   const [leadHours, setLeadHours] = useState('');
+  /** The visit's date — changeable here so the lead can fix it as he closes out. */
+  const [visitDate, setVisitDate] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -44,6 +48,7 @@ export default function FinishVisit() {
       setVisit(v);
       if (v) {
         setNarrative((v as any).narrative ?? '');
+        setVisitDate((v as any).visit_date ?? todayLocal());
         if ((v as any).status_flag) setStatusFlag((v as any).status_flag);
         if ((v as any).lead_hours != null) setLeadHours(String((v as any).lead_hours));
       }
@@ -64,8 +69,11 @@ export default function FinishVisit() {
 
   async function finish() {
     if (!visitId) return;
+    const problem = visitDateProblem(visitDate, todayLocal());
+    if (problem) { setErr(problem); return; }
     setBusy(true); setErr(null);
     const { error } = await supabase.from('visits').update({
+      visit_date: visitDate.trim(),
       narrative: narrative.trim() || null,
       status_flag: statusFlag || null,
       lead_hours: numOrNull(leadHours),
@@ -94,7 +102,7 @@ export default function FinishVisit() {
           <h2>Finish the visit</h2>
           {visit && (
             <p className="muted small" style={{ marginTop: 2 }}>
-              {visit.visit_date}{(visit.techs ?? []).length ? ` · ${visit.techs.join(', ')}` : ''}
+              {shortDay(visit.visit_date)}{(visit.techs ?? []).length ? ` · ${visit.techs.join(', ')}` : ''}
             </p>
           )}
 
@@ -142,6 +150,14 @@ export default function FinishVisit() {
                 </p>
               </>
             )}
+            <label>Visit date</label>
+            <input type="date" value={visitDate} max={todayLocal()}
+              onChange={(e) => setVisitDate(e.target.value)} />
+            <p className="muted small" style={{ marginTop: 2 }}>
+              {isBackdated(visitDate, todayLocal())
+                ? `Backdated to ${shortDay(visitDate)}. Every location on this visit goes on the report under that day.`
+                : 'The day the work was done. Change it if this was an earlier day.'}
+            </p>
             <label>Job summary / narrative</label>
             <textarea value={narrative} onChange={(e) => setNarrative(e.target.value)}
               placeholder="What happened, delays, what's left…" />

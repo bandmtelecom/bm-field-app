@@ -6,6 +6,7 @@ import { markJobComplete, downloadFieldReport, reopenJob, markJobInvoiced, unarc
 import { STRUCTURE_LABELS, STATUS_FLAGS, locationTitle } from '../lib/types';
 import LocationDetail from '../components/LocationDetail';
 import { todayLocal } from '../lib/num';
+import { visitDateProblem, isBackdated, shortDay } from '../lib/visitDate';
 
 // Every column the read-only detail panel needs, pulled in one query with the
 // visit so tapping a location is instant (child tables load on demand).
@@ -41,6 +42,13 @@ export default function JobRecord() {
     { narrative: '', status_flag: '' });
   const [vBusy, setVBusy] = useState(false);
   const [vErr, setVErr] = useState<string | null>(null);
+  /** The date a new visit starts with. Today unless the crew is entering work
+   *  from an earlier day — no signal last night, or a job begun before the app. */
+  const [startDate, setStartDate] = useState<string>(todayLocal());
+  /** Changing an existing visit's date: which visit, and the date being typed. */
+  const [dateEdit, setDateEdit] = useState<{ id: string; value: string } | null>(null);
+  const [dateBusy, setDateBusy] = useState(false);
+  const [dateErr, setDateErr] = useState<string | null>(null);
 
   async function load() {
     const { data: j } = await supabase.from('jobs')
@@ -68,14 +76,34 @@ export default function JobRecord() {
    */
   async function startVisit() {
     if (!id) return;
+    const problem = visitDateProblem(startDate, todayLocal());
+    if (problem) { setMsg(problem); return; }
     setBusy(true); setMsg(null);
     const { data, error } = await supabase.from('visits').insert({
-      job_id: id, reporter_id: userId, visit_date: todayLocal(),
+      job_id: id, reporter_id: userId, visit_date: startDate.trim(),
       status: 'open', lead_start: new Date().toISOString(), techs: [],
     }).select('id').single();
     setBusy(false);
     if (error || !data) { setMsg(error?.message ?? 'Could not start the visit.'); return; }
     nav(`/jobs/${id}/visits/${data.id}/add-location`);
+  }
+
+  /** The lead (while the visit is open) or the office: put the right date on it.
+   *  Every location on the visit moves with it — they have no date of their own. */
+  async function saveDate() {
+    if (!dateEdit) return;
+    const problem = visitDateProblem(dateEdit.value, todayLocal());
+    if (problem) { setDateErr(problem); return; }
+    setDateBusy(true); setDateErr(null);
+    const { error } = await supabase.from('visits')
+      .update({ visit_date: dateEdit.value.trim() })
+      .eq('id', dateEdit.id).select('id').single();
+    setDateBusy(false);
+    // .select().single() so a refused update (not the lead, not the office)
+    // comes back as an error instead of a silent nothing.
+    if (error) { setDateErr(error.message); return; }
+    setDateEdit(null);
+    await load();
   }
 
   /** Office only: put a finished visit back in front of the crew. */
@@ -202,9 +230,38 @@ export default function JobRecord() {
           return (
             <div key={v.id} className="card" style={isOpen ? { borderColor: 'var(--ok)' } : undefined}>
               <div className="row" style={{ justifyContent: 'space-between' }}>
-                <strong>{v.visit_date}</strong>
+                <strong>{shortDay(v.visit_date)}</strong>
                 <span className="small muted">{(v.techs ?? []).join(', ')}</span>
               </div>
+              {/* Austin, 9/30: backdating. The lead can fix the date while the
+                  visit is open; the office can fix it any time. */}
+              {dateEdit?.id === v.id ? (
+                <div className="card" style={{ borderColor: 'var(--accent)', marginTop: 8 }}>
+                  <label>Date the work was done</label>
+                  <input type="date" value={dateEdit.value} max={todayLocal()}
+                    onChange={(e) => setDateEdit({ id: v.id, value: e.target.value })} />
+                  <p className="muted small" style={{ marginTop: 4 }}>
+                    Every location on this visit ({locs.length}) moves to this date.
+                    {job.status === 'complete'
+                      ? ' This job is already closed — reopen it and mark it complete again so the invoice shows the new date.'
+                      : ''}
+                  </p>
+                  {dateErr && <div className="error">{dateErr}</div>}
+                  <div style={{ height: 8 }} />
+                  <button className="btn ok" disabled={dateBusy} onClick={saveDate}>
+                    {dateBusy ? 'Saving…' : 'Save the date'}
+                  </button>
+                  <div style={{ height: 8 }} />
+                  <button className="btn ghost" disabled={dateBusy} onClick={() => setDateEdit(null)}>
+                    Cancel
+                  </button>
+                </div>
+              ) : (isOffice || (isLead && isOpen)) && (
+                <button className="addline" style={{ marginTop: 4 }}
+                  onClick={() => { setDateErr(null); setDateEdit({ id: v.id, value: v.visit_date ?? todayLocal() }); }}>
+                  📅 Change the date
+                </button>
+              )}
               {/* An open visit is the one the crew is out on right now. Every
                   man on the job adds his own hole to it; the lead finishes it. */}
               {isOpen && (
@@ -339,6 +396,22 @@ export default function JobRecord() {
                 is already open the button steps back — a second crew on the
                 same job the same night is rare, and adding onto the open visit
                 is almost always what is wanted. */}
+            {/* The date goes on BEFORE the visit starts, so every location the
+                crew adds lands under the right day. */}
+            <div className="card">
+              <label>Visit date</label>
+              <input type="date" value={startDate} max={todayLocal()}
+                onChange={(e) => setStartDate(e.target.value)} />
+              {isBackdated(startDate, todayLocal()) ? (
+                <p className="small" style={{ marginTop: 4, color: 'var(--accent)', fontWeight: 600 }}>
+                  Backdated to {shortDay(startDate)} — for work done on an earlier day.
+                </p>
+              ) : (
+                <p className="muted small" style={{ marginTop: 4 }}>
+                  Today. Change it if you're entering work from an earlier day.
+                </p>
+              )}
+            </div>
             {openVisits.length === 0 ? (
               <button className="btn accent" disabled={busy} onClick={startVisit}>
                 {busy ? 'Starting…' : '▶ Start a visit'}

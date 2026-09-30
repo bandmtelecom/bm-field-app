@@ -7,6 +7,11 @@ import { numOrNull, numOr0, splitNames, joinNames } from '../lib/num';
 import { loadPriorLocations } from '../lib/priorLocations';
 import { previewPmNumbers } from '../lib/locationNo';
 import { locationTitle } from '../lib/types';
+import { todayLocal } from '../lib/num';
+import { visitDateProblem, shortDay } from '../lib/visitDate';
+
+/** Picker value for "put it on a brand-new visit" rather than an existing one. */
+const NEW_VISIT = '__new__';
 
 const str = (v: unknown) => (v == null ? '' : String(v));
 
@@ -26,7 +31,8 @@ const str = (v: unknown) => (v == null ? '' : String(v));
 export default function EditLocation() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { userId } = useSession();
+  const { userId, profile } = useSession();
+  const isOffice = profile?.role === 'office' || profile?.role === 'admin';
 
   const [form, setForm] = useState<LocationForm | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);
@@ -40,6 +46,13 @@ export default function EditLocation() {
   /** The other holes on this job, so a mis-filed return trip can be corrected
    *  without anybody re-entering the report. */
   const [prior, setPrior] = useState<PriorLocation[]>([]);
+  /** Austin, 9/30: a location takes its visit's date. To put one location on
+   *  a different day, the office moves it to the visit for that day — or to a
+   *  new one. `visitId` is where it is now; `moveTo` is what the picker says. */
+  const [visitId, setVisitId] = useState<string | null>(null);
+  const [jobVisits, setJobVisits] = useState<{ id: string; visit_date: string; lead: string | null; count: number }[]>([]);
+  const [moveTo, setMoveTo] = useState<string>('');
+  const [newDate, setNewDate] = useState<string>(todayLocal());
 
   useEffect(() => {
     if (!id) return;
@@ -64,6 +77,23 @@ export default function EditLocation() {
       setCustomerId(a.visits?.jobs?.customer_id ?? null);
       setMeta({ visitDate: a.visits?.visit_date, bm: a.visits?.jobs?.bm_number });
       setJobNo(a.job_location_no ?? null);
+      setVisitId(a.visit_id ?? null);
+      setMoveTo(a.visit_id ?? '');
+
+      if (a.visits?.job_id) {
+        supabase.from('visits')
+          .select('id, visit_date, reporter:profiles!visits_reporter_id_fkey(full_name), locations(count)')
+          .eq('job_id', a.visits.job_id)
+          .order('visit_date', { ascending: true }).order('created_at', { ascending: true })
+          .then(({ data, error }) => {
+            if (error) { console.error('could not load the job\'s visits', error); return; }
+            setJobVisits((data ?? []).map((v: any) => ({
+              id: v.id, visit_date: v.visit_date,
+              lead: v.reporter?.full_name ?? null,
+              count: v.locations?.[0]?.count ?? 0,
+            })));
+          });
+      }
 
       // Every other hole on this job, minus this one. Loading it here rather
       // than in the block keeps the "which hole is this" question answerable
@@ -160,10 +190,28 @@ export default function EditLocation() {
         closureId = closure.id;
       }
 
+      // Moving the location to another day (office only). A new visit is filed
+      // closed — this is paperwork after the fact, not a crew out tonight.
+      let targetVisit = visitId;
+      if (isOffice && moveTo === NEW_VISIT) {
+        const problem = visitDateProblem(newDate, todayLocal());
+        if (problem) throw new Error(problem);
+        const { data: nv, error: nvErr } = await supabase.from('visits').insert({
+          job_id: jobId, reporter_id: userId, visit_date: newDate.trim(),
+          status: 'closed', techs: [],
+        }).select('id').single();
+        if (nvErr || !nv) throw new Error(`Could not make the new visit: ${nvErr?.message ?? 'no row returned'}`);
+        targetVisit = nv.id;
+      } else if (isOffice && moveTo) {
+        targetVisit = moveTo;
+      }
+      const moved = !!targetVisit && targetVisit !== visitId;
+
       const trayCode = numOr0(form.trays_added) > 0
         ? inferTrayMaterial(form.enclosure_model, form.splice_type || null) : null;
 
       const { error: uErr } = await supabase.from('locations').update({
+        ...(moved ? { visit_id: targetVisit } : {}),
         closure_id: closureId, pm_location_no: form.pm_location_no || null,
         // Setting this makes the row take that hole's number; clearing it gives
         // the row a fresh number at the end of the job. Both are the database's
@@ -205,6 +253,29 @@ export default function EditLocation() {
           ordinal: i,
         })));
 
+      // The visit it left: if that was its only location and nobody wrote a
+      // summary on it, it is an empty shell that would print as a blank visit
+      // on the customer's report. Remove it — but only if NOTHING is left on it
+      // (no summary, no photos, no timeline). Anything with content stays.
+      if (moved && visitId) {
+        // Photos and OTDR files carry the visit they were taken on, and a
+        // visit delete CASCADES to them. Move them with the location FIRST.
+        const { error: aErr } = await supabase.from('attachments')
+          .update({ visit_id: targetVisit }).eq('location_id', id);
+        if (aErr) throw new Error(`Moved the location, but its photos did not follow: ${aErr.message}`);
+
+        const { data: old } = await supabase.from('visits')
+          .select('id, narrative, locations(count), attachments(count), timeline_events(count)')
+          .eq('id', visitId).single();
+        const o: any = old;
+        const n = (k: string) => o?.[k]?.[0]?.count ?? 1;   // unknown = keep it
+        if (o && n('locations') === 0 && n('attachments') === 0 && n('timeline_events') === 0
+            && !(o.narrative ?? '').trim()) {
+          const { error: dErr } = await supabase.from('visits').delete().eq('id', visitId);
+          if (dErr) console.error('could not remove the empty visit', dErr);
+        }
+      }
+
       // The visit's crew list (the union of its locations) is kept by the
       // database now — trigger trg_sync_visit_techs, migration 0014. It used to
       // be recomputed here, which a second man on somebody else's visit could
@@ -240,7 +311,7 @@ export default function EditLocation() {
           <p className="muted small">
             From the visit on {meta?.visitDate ?? '—'}. Change whatever needs fixing and save.
             That includes the crew — the names on this location are what standby
-            time bills against. The visit date is not changed here.
+            time bills against.
           </p>
           {form.closure_code && (
             <p className="small" style={{ color: 'var(--ok)' }}>
@@ -264,6 +335,34 @@ export default function EditLocation() {
             and the app takes the next number in line on this job.
           </p>
         </div>
+
+        {/* Office only: which day this location goes on the report under. */}
+        {isOffice && jobVisits.length > 0 && (
+          <div className="card">
+            <label>Date — which visit is this on?</label>
+            <select value={moveTo} onChange={(e) => setMoveTo(e.target.value)}>
+              {jobVisits.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {shortDay(v.visit_date)}{v.lead ? ` · ${v.lead}` : ''} · {v.count} location{v.count === 1 ? '' : 's'}
+                  {v.id === visitId ? '  (now)' : ''}
+                </option>
+              ))}
+              <option value={NEW_VISIT}>＋ A new visit on another day…</option>
+            </select>
+            {moveTo === NEW_VISIT && (
+              <>
+                <label>Date of the new visit</label>
+                <input type="date" value={newDate} max={todayLocal()}
+                  onChange={(e) => setNewDate(e.target.value)} />
+              </>
+            )}
+            <p className="muted small" style={{ marginTop: 4 }}>
+              {moveTo && moveTo !== visitId
+                ? 'Saving moves this location to that day. Its number, crew and closure stay the same.'
+                : 'A location goes on the report under its visit\'s date. To change the date for the whole visit, use 📅 Change the date on the job screen.'}
+            </p>
+          </div>
+        )}
 
         <LocationBlock
           value={form} index={0} customerId={customerId}
