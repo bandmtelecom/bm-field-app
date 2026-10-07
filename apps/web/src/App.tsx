@@ -12,6 +12,7 @@ import EditLocation from './pages/EditLocation';
 import ChangePassword from './pages/ChangePassword';
 import Archive from './pages/Archive';
 import ClosureDetail from './pages/ClosureDetail';
+import OpgwPointPage from './pages/OpgwPoint';
 
 function JobRecordRedirect() {
   const { id } = useParams();
@@ -34,6 +35,8 @@ export default function App() {
       <Route path="/jobs/:id/visits/:visitId/add-location" element={<AddLocation />} />
       <Route path="/jobs/:id/visits/:visitId/finish" element={<FinishVisit />} />
       <Route path="/jobs/:id/invoice" element={<InvoiceView />} />
+      {/* 0015: OPGW jobs — add (/opgw/new?kind=splice|test) or fix one structure */}
+      <Route path="/jobs/:id/opgw/:pointId" element={<OpgwPointPage />} />
       <Route path="/locations/:id/edit" element={<EditLocation />} />
       <Route path="/password" element={<ChangePassword />} />
       <Route path="/archive" element={<Archive />} />

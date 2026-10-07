@@ -235,7 +235,10 @@ function UsersPanel({ selfId }: { selfId: string }) {
 
 // ---- Create job ------------------------------------------------------------
 function JobsPanel() {
-  const [customers, setCustomers] = useState<{ id: string; name: string; code: string }[]>([]);
+  const [customers, setCustomers] = useState<{ id: string; name: string; code: string; opgw_order: number | null }[]>([]);
+  /** 0015: fiber = the Lumen-style record that bills; opgw = structures + map report, no invoice. */
+  const [kind, setKind] = useState<'fiber' | 'opgw'>('fiber');
+  const [customerOther, setCustomerOther] = useState('');
   const [msg, setMsg] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -254,7 +257,7 @@ function JobsPanel() {
   const [newCustCode, setNewCustCode] = useState('');
 
   async function loadCustomers() {
-    const { data } = await supabase.from('customers').select('id, name, code').order('name');
+    const { data } = await supabase.from('customers').select('id, name, code, opgw_order').order('name');
     setCustomers((data as any) ?? []);
   }
   useEffect(() => { loadCustomers(); }, []);
@@ -278,18 +281,39 @@ function JobsPanel() {
     setNewCustName(''); setNewCustCode(''); await loadCustomers();
   }
 
+  // The OPGW list, in Austin's order (10/7): Primoris, Michels, Irby, Oncor,
+  // Burns & McDonnell, SEC, Dashiell, Northstar, Other.
+  const opgwCustomers = customers.filter((c) => c.opgw_order != null)
+    .sort((a, b) => (a.opgw_order ?? 0) - (b.opgw_order ?? 0));
+  const shownCustomers = kind === 'opgw' ? opgwCustomers : customers;
+  const pickedOther = customers.find((c) => c.id === customerId)?.name.trim().toLowerCase() === 'other';
+
+  // switching job type clears a customer that is not on the new list
+  useEffect(() => {
+    if (customerId && !shownCustomers.some((c) => c.id === customerId)) setCustomerId('');
+    // eslint-disable-next-line
+  }, [kind]);
+
   async function createJob(e: FormEvent) {
     e.preventDefault();
+    if (pickedOther && !customerOther.trim()) { setErr('Type the customer name.'); return; }
     setBusy(true); setErr(null); setMsg(null);
+    const isOpgw = kind === 'opgw';
     const { error } = await supabase.from('jobs').insert({
       bm_number: bm.trim(), customer_id: customerId, identifier: identifier.trim() || null,
-      identifier_type: idType, title: title.trim() || null, billing_mode: mode, status: 'open',
-      maint_window: mode === 'capital' ? maintWindow : false,
-      scheduled_ahead: mode === 'emergency' ? scheduledAhead : false,
+      identifier_type: isOpgw ? 'other' : idType, title: title.trim() || null,
+      billing_mode: isOpgw ? 'capital' : mode, status: 'open',
+      maint_window: !isOpgw && mode === 'capital' ? maintWindow : false,
+      scheduled_ahead: !isOpgw && mode === 'emergency' ? scheduledAhead : false,
+      job_kind: kind,
+      customer_other: pickedOther ? customerOther.trim() : null,
     });
     if (error) { setErr(error.message); setBusy(false); return; }
-    setMsg(`Job ${bm} created — it's now on the crew's roster.${maintWindow && mode === 'capital' ? ' Maintenance-window adder is on.' : ''}`);
+    setMsg(isOpgw
+      ? `OPGW job ${bm} created — it's on the crew's roster. No invoice will be built for it.`
+      : `Job ${bm} created — it's now on the crew's roster.${maintWindow && mode === 'capital' ? ' Maintenance-window adder is on.' : ''}`);
     setBm(''); setIdentifier(''); setTitle(''); setMaintWindow(false); setScheduledAhead(false);
+    setCustomerOther('');
     setBusy(false);
   }
 
@@ -299,16 +323,42 @@ function JobsPanel() {
         <h2>Create job</h2>
         <p className="muted small">Appears on the crew's app immediately. LOR/TT default to emergency (hourly) billing.</p>
         <form onSubmit={createJob}>
+          <label>Job type</label>
+          <div className="seg" style={{ marginBottom: 10 }}>
+            <button type="button" className={kind === 'fiber' ? 'on' : ''} onClick={() => setKind('fiber')}>Fiber (Lumen and others)</button>
+            <button type="button" className={kind === 'opgw' ? 'on' : ''} onClick={() => setKind('opgw')}>OPGW</button>
+          </div>
+          {kind === 'opgw' && (
+            <p className="muted small" style={{ marginTop: -4 }}>
+              OPGW jobs are pre-bid: the crew logs splices and test points, the app
+              builds the map report, and no invoice is made.
+            </p>
+          )}
           <div className="row">
             <div><label>B&amp;M #</label><input value={bm} onChange={(e) => setBm(e.target.value)} placeholder="26-409" required /></div>
             <div>
               <label>Customer</label>
               <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} required>
                 <option value="">—</option>
-                {customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {shownCustomers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </div>
           </div>
+          {pickedOther && (
+            <>
+              <label>Customer name</label>
+              <input value={customerOther} onChange={(e) => setCustomerOther(e.target.value)}
+                placeholder="Type the customer" required />
+            </>
+          )}
+          {kind === 'opgw' ? (
+            <>
+              <label>Customer job #</label>
+              <input value={identifier} onChange={(e) => setIdentifier(e.target.value)} placeholder="803858" />
+              <label>Line</label>
+              <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ennis Pump–Shankle 138 kV" />
+            </>
+          ) : (<>
           <div className="row">
             <div>
               <label>Identifier type</label>
@@ -364,6 +414,7 @@ function JobsPanel() {
               </p>
             </>
           )}
+          </>)}
           {err && <div className="error">{err}</div>}
           {msg && <div className="small" style={{ color: 'var(--ok)', marginTop: 8 }}>{msg}</div>}
           <div style={{ height: 12 }} />

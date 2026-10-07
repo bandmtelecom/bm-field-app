@@ -5,6 +5,8 @@ import { useSession } from '../lib/session';
 import { markJobComplete, downloadFieldReport, reopenJob, markJobInvoiced, unarchiveJob } from '../lib/api';
 import { STRUCTURE_LABELS, STATUS_FLAGS, locationTitle } from '../lib/types';
 import LocationDetail from '../components/LocationDetail';
+import OpgwJob from '../components/OpgwJob';
+import { customerLabel } from '../lib/opgw';
 import { todayLocal } from '../lib/num';
 import { visitDateProblem, isBackdated, shortDay } from '../lib/visitDate';
 
@@ -52,7 +54,7 @@ export default function JobRecord() {
 
   async function load() {
     const { data: j } = await supabase.from('jobs')
-      .select('id, bm_number, identifier, identifier_type, title, billing_mode, maint_window, scheduled_ahead, status, customer:customers(name, code)')
+      .select('id, bm_number, identifier, identifier_type, title, billing_mode, maint_window, scheduled_ahead, status, job_kind, customer_other, customer:customers(name, code)')
       .eq('id', id).single();
     setJob(j as any);
     const { data: v } = await supabase.from('visits')
@@ -64,6 +66,8 @@ export default function JobRecord() {
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
 
   const isOffice = profile?.role === 'office' || profile?.role === 'admin';
+  /** OPGW (0015): a list of structures and a map report. No visits, no invoice. */
+  const isOpgw = job?.job_kind === 'opgw';
   /** Visits the lead has started and not yet finished — anyone can add a
    *  location to these. Usually one; more than one means somebody forgot. */
   const openVisits = visits.filter((v) => v.status === 'open');
@@ -123,7 +127,9 @@ export default function JobRecord() {
     setBusy(true); setMsg(null); setConfirming(false);
     try {
       const r = await markJobComplete(id);
-      setMsg(isOffice && r.total != null
+      setMsg(r.opgw
+        ? 'Job closed. The report is ready — no invoice on OPGW jobs.'
+        : isOffice && r.total != null
         ? `Job closed. Draft invoice ready (${r.lineCount} lines).`
         : 'Job closed and sent to the office for invoicing.');
       await load();
@@ -204,8 +210,14 @@ export default function JobRecord() {
       </div>
       <div className="content">
         <div className="card">
-          <h2>{job.bm_number} — {job.customer?.name}</h2>
-          <div className="small muted">{job.identifier} · {job.title}</div>
+          <h2>{job.bm_number} — {customerLabel(job.customer?.name, job.customer_other)}</h2>
+          <div className="small muted">{[job.identifier, job.title].filter(Boolean).join(' · ')}</div>
+          {isOpgw ? (
+            <div style={{ marginTop: 8 }}>
+              <span className="pill" style={{ background: '#e8eef6', color: 'var(--navy)', fontWeight: 600 }}>OPGW</span>
+              <span className="pill" style={{ marginLeft: 6 }}>Pre-bid — no invoice</span>
+            </div>
+          ) : (
           <div style={{ marginTop: 8 }}>
             {job.billing_mode === 'emergency'
               ? <span className="badge emergency">LOR / Emergency</span>
@@ -217,7 +229,11 @@ export default function JobRecord() {
               </span>
             )}
           </div>
+          )}
         </div>
+
+        {isOpgw && <OpgwJob jobId={job.id} closed={job.status === 'complete' || job.status === 'invoiced'} isOffice={isOffice} />}
+        {!isOpgw && <>
 
         <h3 className="muted small" style={{ margin: '4px 2px' }}>
           RUNNING RECORD · {visits.length} visit(s) · tap a location to see the detail
@@ -387,6 +403,7 @@ export default function JobRecord() {
           );
         })}
         {!visits.length && <div className="card muted small">No visits yet. The lead starts the first one.</div>}
+        </>}
 
         {msg && <div className="card small" style={{ borderColor: 'var(--ok)' }}>{msg}</div>}
 
@@ -398,6 +415,7 @@ export default function JobRecord() {
                 is almost always what is wanted. */}
             {/* The date goes on BEFORE the visit starts, so every location the
                 crew adds lands under the right day. */}
+            {!isOpgw && <>
             <div className="card">
               <label>Visit date</label>
               <input type="date" value={startDate} max={todayLocal()}
@@ -428,6 +446,7 @@ export default function JobRecord() {
               </>
             )}
             <div style={{ height: 10 }} />
+            </>}
 
             {/* Two taps, on purpose. One tap used to close the job, build the
                 invoice and hide these buttons, with no way back except SQL. */}
@@ -445,8 +464,9 @@ export default function JobRecord() {
               <div className="card" style={{ borderColor: 'var(--accent)' }}>
                 <strong>Close out {job.bm_number}?</strong>
                 <p className="small" style={{ marginTop: 6 }}>
-                  This tells the office the work is finished and builds the invoice.
-                  The crew can't add any more visits to it.
+                  {isOpgw
+                    ? 'This tells the office the line is finished. The crew can\u2019t add any more structures to it. No invoice is built — OPGW jobs are pre-bid.'
+                    : 'This tells the office the work is finished and builds the invoice. The crew can\u2019t add any more visits to it.'}
                 </p>
                 <p className="muted small">
                   Only do this when the whole job is done — not just tonight's work.
@@ -473,8 +493,9 @@ export default function JobRecord() {
               {busy ? 'Reopening…' : '↩ Reopen this job'}
             </button>
             <p className="muted small" style={{ marginTop: 4 }}>
-              Puts it back on the crew's roster so they can add or fix a visit. The
-              current draft invoice is set aside; closing it again builds a fresh one.
+              {isOpgw
+                ? 'Puts it back on the crew\u2019s roster so they can add or fix a structure.'
+                : 'Puts it back on the crew\u2019s roster so they can add or fix a visit. The current draft invoice is set aside; closing it again builds a fresh one.'}
             </p>
           </>
         )}
@@ -531,15 +552,15 @@ export default function JobRecord() {
               {dl ? 'Building…' : '📄 Download field report (PDF)'}
             </button>
             <p className="muted small" style={{ marginTop: 4 }}>
-              Everything the crew did on this job — closures, splices, cables and
-              footages, as-found and as-built. No prices; this is the copy for the
-              customer.
+              {isOpgw
+                ? 'A map of the line with every structure numbered, close-ups where they bunch up, then each splice and test point. This is the copy for the customer — and for Buddy\u2019s test package.'
+                : 'Everything the crew did on this job — closures, splices, cables and footages, as-found and as-built. No prices; this is the copy for the customer.'}
             </p>
           {dlErr && <div className="error">{dlErr}</div>}
         </>
 
         {/* Dollars stay office/admin. */}
-        {isOffice && (
+        {isOffice && !isOpgw && (
           <>
             <div style={{ height: 10 }} />
             <Link className="btn ghost" to={`/jobs/${id}/invoice`}>View draft invoice</Link>

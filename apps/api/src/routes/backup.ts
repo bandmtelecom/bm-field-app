@@ -30,6 +30,7 @@ const TABLES = [
   'panel_ports',
   'downtime',
   'location_units',
+  'opgw_points',
   'timeline_events',
   'attachments',
   'invoice_drafts',

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
 import type { Job } from '../lib/types';
+import { customerLabel } from '../lib/opgw';
 
 export default function Jobs() {
   const { profile, signOut } = useSession();
@@ -13,7 +14,7 @@ export default function Jobs() {
 
   useEffect(() => {
     supabase.from('jobs')
-      .select('id, bm_number, identifier, identifier_type, title, billing_mode, status, customer:customers(name, code)')
+      .select('id, bm_number, identifier, identifier_type, title, billing_mode, status, job_kind, customer_other, customer:customers(name, code)')
       .neq('status', 'invoiced')
       .order('bm_number', { ascending: false })
       .then(({ data }) => { setJobs((data as any) ?? []); setLoading(false); });
@@ -22,7 +23,7 @@ export default function Jobs() {
   const filtered = jobs.filter((j) => {
     const s = q.trim().toLowerCase();
     if (!s) return true;
-    return [j.bm_number, j.identifier, j.title, j.customer?.name]
+    return [j.bm_number, j.identifier, j.title, customerLabel(j.customer?.name, j.customer_other), j.job_kind === 'opgw' ? 'opgw' : '']
       .filter(Boolean).some((v) => String(v).toLowerCase().includes(s));
   });
 
@@ -52,10 +53,11 @@ export default function Jobs() {
               <li key={j.id} className="jobitem" onClick={() => nav(`/jobs/${j.id}`)}>
                 <div>
                   <div className="jobnum">{j.bm_number}</div>
-                  <div className="small muted">{j.customer?.name} · {j.identifier ?? j.title ?? ''}</div>
+                  <div className="small muted">{customerLabel(j.customer?.name, j.customer_other)} · {j.identifier ?? j.title ?? ''}</div>
                 </div>
                 <div className="spacer" style={{ flex: 1 }} />
-                {j.billing_mode === 'emergency' && <span className="badge emergency">LOR/EMG</span>}
+                {j.job_kind === 'opgw' && <span className="badge" style={{ background: '#e8eef6', color: 'var(--navy)' }}>OPGW</span>}
+                {j.job_kind !== 'opgw' && j.billing_mode === 'emergency' && <span className="badge emergency">LOR/EMG</span>}
                 <span className={`badge ${j.status === 'open' ? 'open' : ''}`}>{j.status}</span>
               </li>
             ))}

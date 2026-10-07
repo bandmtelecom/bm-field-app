@@ -14,6 +14,10 @@ export interface Job {
   title: string | null; billing_mode: 'capital' | 'emergency';
   status: 'open' | 'complete' | 'reopened' | 'invoiced';
   customer?: { name: string; code: string };
+  /** fiber = the Lumen-style record that bills; opgw = structures + map report, never invoiced (0015). */
+  job_kind?: 'fiber' | 'opgw';
+  /** The typed customer name when the customer is "Other" (0015). */
+  customer_other?: string | null;
 }
 
 export interface Visit {

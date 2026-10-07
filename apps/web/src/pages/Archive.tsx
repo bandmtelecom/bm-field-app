@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { customerLabel } from '../lib/opgw';
 
 /**
  * Archive — jobs that have been invoiced and sent to the customer.
@@ -24,6 +25,8 @@ interface ArchivedJob {
   billing_mode: string;
   invoiced_at: string | null;
   customer: { name: string | null } | null;
+  customer_other?: string | null;
+  job_kind?: string | null;
 }
 
 /** "September 2026" — the heading a month's worth of work sits under. */
@@ -42,7 +45,7 @@ export default function Archive() {
   useEffect(() => {
     supabase
       .from('jobs')
-      .select('id, bm_number, identifier, title, billing_mode, invoiced_at, customer:customers(name)')
+      .select('id, bm_number, identifier, title, billing_mode, invoiced_at, job_kind, customer_other, customer:customers(name)')
       .eq('status', 'invoiced')
       .order('invoiced_at', { ascending: false })
       .then(({ data }) => {
@@ -54,7 +57,7 @@ export default function Archive() {
   const term = q.trim().toLowerCase();
   const shown = term
     ? jobs.filter((j) =>
-        [j.bm_number, j.identifier, j.title, j.customer?.name]
+        [j.bm_number, j.identifier, j.title, customerLabel(j.customer?.name, j.customer_other)]
           .some((v) => (v ?? '').toLowerCase().includes(term)))
     : jobs;
 
@@ -122,7 +125,7 @@ export default function Archive() {
                     {j.invoiced_at ? new Date(j.invoiced_at).toLocaleDateString() : ''}
                   </span>
                 </div>
-                <div className="small">{j.customer?.name ?? '—'}</div>
+                <div className="small">{customerLabel(j.customer?.name, j.customer_other) || '—'}{j.job_kind === 'opgw' ? ' · OPGW' : ''}</div>
                 {(j.title || j.identifier) && (
                   <div className="muted small">{j.title || j.identifier}</div>
                 )}

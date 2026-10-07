@@ -17,6 +17,20 @@ invoices.post('/jobs/:id/invoice', async (req, res) => {
 
   const jobId = req.params.id;
   try {
+    // OPGW (0015): pre-bid, never invoiced. Austin, 10/6: "I don't need you to
+    // punch out an invoice for me because all these jobs are pre-bid ahead of
+    // time." Closing the job just closes it — no draft, no lines.
+    const { data: kind, error: kErr } = await admin
+      .from('jobs').select('job_kind').eq('id', jobId).single();
+    if (kErr) throw kErr;
+    if (kind?.job_kind === 'opgw') {
+      const { error: cErr } = await admin.from('jobs')
+        .update({ status: 'complete', completed_at: new Date().toISOString(), completed_by: caller.id })
+        .eq('id', jobId);
+      if (cErr) throw cErr;
+      return res.json({ ok: true, status: 'complete', opgw: true, lineCount: 0 });
+    }
+
     const jobInput = await loadJobInput(jobId);
     const draft = computeInvoice(jobInput);
 

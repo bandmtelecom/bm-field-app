@@ -6,6 +6,8 @@ import { admin } from '../supabase.js';
 import { getExportCaller } from '../lib/automation.js';
 import { buildFieldReport, type ReportJob } from '../lib/fieldReport.js';
 import { EXTRA_UNIT_LABELS } from '../lib/unitLabels.js';
+import { buildOpgwReport, type OpgwReportModel, type OpgwReportPoint, type OpgwReportMap } from '../lib/opgwReport.js';
+import { fitView, crowdedGroups, groupLetter, staticMapUrl, directionsUrl, type MapPin } from '../lib/opgwMap.js';
 
 export const report = Router();
 
@@ -32,9 +34,19 @@ report.get('/jobs/:id/report.pdf', async (req, res) => {
   try {
     const { data: job } = await admin
       .from('jobs')
-      .select('id, bm_number, identifier, identifier_type, title, billing_mode, status, customer:customers(name)')
+      .select('id, bm_number, identifier, identifier_type, title, billing_mode, status, job_kind, customer_other, customer:customers(name)')
       .eq('id', req.params.id).single();
     if (!job) return res.status(404).json({ error: 'job not found' });
+
+    // OPGW (0015): structures + map report, a different document altogether.
+    if ((job as any).job_kind === 'opgw') {
+      const out = await opgwPdf(job as any);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition',
+        `attachment; filename="${safeFilename(job.bm_number)}-opgw-report.pdf"`);
+      res.setHeader('Content-Length', String(out.length));
+      return res.end(out);
+    }
 
     const { data: visits } = await admin
       .from('visits')
@@ -141,3 +153,117 @@ report.get('/jobs/:id/report.pdf', async (req, res) => {
     return res.status(400).json({ error: e?.message ?? 'report generation failed' });
   }
 });
+
+// ===========================================================================
+// OPGW report (0015)
+// ===========================================================================
+
+const SPLICE_LABEL: Record<string, string> = {
+  '2way': '2-way', '3way': '3-way', transition: 'Transition', termination: 'Termination', other: 'Other',
+};
+
+/**
+ * One map image from Google Static Maps. Null when there is no key or the
+ * service does not answer — the report still builds, with the pins drawn to
+ * scale on a plain panel. A map outage must never cost the customer the report.
+ */
+async function fetchMap(url: string | null): Promise<Buffer | null> {
+  if (!url) return null;
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), 10000);
+  try {
+    const r = await fetch(url, { signal: ctl.signal });
+    const type = r.headers.get('content-type') ?? '';
+    if (!r.ok || !type.startsWith('image/')) {
+      console.error('static map refused', r.status, (await r.text().catch(() => '')).slice(0, 300));
+      return null;
+    }
+    return Buffer.from(await r.arrayBuffer());
+  } catch (e: any) {
+    console.error('static map failed', e?.message ?? e);
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function opgwPdf(job: any): Promise<Buffer> {
+  const { data: rows, error } = await admin
+    .from('opgw_points')
+    .select('*')
+    .eq('job_id', job.id)
+    .order('ordinal', { ascending: true })
+    .order('created_at', { ascending: true });
+  if (error) throw error;
+
+  let s = 0, t = 0;
+  const points: OpgwReportPoint[] = ((rows as any[]) ?? []).map((r) => {
+    const num = (v: unknown) => (v == null || v === '' ? null : Number(v));
+    const rowLat = num(r.row_lat), rowLng = num(r.row_lng);
+    return {
+      label: r.kind === 'test' ? `T${++t}` : String(++s),
+      kind: r.kind,
+      name: r.name,
+      testedFrom: r.tested_from ?? null,
+      spliceType: r.splice_type === 'other' ? (r.splice_type_other || 'Other') : (SPLICE_LABEL[r.splice_type] ?? ''),
+      cableCount: r.cable_count === 'other' ? (r.cable_count_other || 'Other') : (r.cable_count ?? ''),
+      lat: num(r.gps_lat), lng: num(r.gps_lng),
+      rowLat, rowLng,
+      rowUrl: rowLat != null && rowLng != null ? directionsUrl(rowLat, rowLng) : null,
+      notes: r.notes ?? null,
+      techs: r.techs ?? [],
+      workDate: r.work_date ?? null,
+    };
+  });
+
+  const pins: MapPin[] = points
+    .filter((p) => p.lat != null && p.lng != null)
+    .map((p) => ({ label: p.label, name: p.name, lat: p.lat!, lng: p.lng!, kind: p.kind }));
+
+  const key = (process.env.GOOGLE_MAPS_KEY ?? '').trim();
+  let main: OpgwReportMap | null = null;
+  const closeups: OpgwReportMap[] = [];
+
+  if (pins.length) {
+    const view = fitView(pins, 640, 330, { pad: 30, maxZoom: 15 });
+    const groups = crowdedGroups(view, pins).map((g, i) => ({ letter: groupLetter(i), pins: g }));
+    main = { view, pins, image: null, groups, title: 'Map 1 — the whole line' };
+    for (const g of groups) {
+      const cv = fitView(g.pins, 500, 300, { pad: 40, maxZoom: 18 });
+      closeups.push({
+        view: cv, pins: g.pins, image: null,
+        title: `Close-up ${g.letter} — ${g.pins.map((p) => p.name).join(', ')}`,
+      });
+    }
+    // all map images at once
+    const [mainImg, ...closeImgs] = await Promise.all([
+      fetchMap(key ? staticMapUrl(view, key, 'roadmap') : null),
+      ...closeups.map((c) => fetchMap(key ? staticMapUrl(c.view, key, 'roadmap') : null)),
+    ]);
+    main.image = mainImg;
+    closeups.forEach((c, i) => { c.image = closeImgs[i]; });
+  }
+
+  const name = String(job.customer?.name ?? '').trim();
+  const customerName = name.toLowerCase() === 'other' && (job.customer_other ?? '').trim()
+    ? String(job.customer_other).trim() : name;
+
+  const model: OpgwReportModel = {
+    bmNumber: job.bm_number,
+    customerName,
+    identifier: job.identifier ?? null,
+    title: job.title ?? null,
+    points, main, closeups,
+    noMapKey: !key,
+  };
+
+  const logo = await readFile(LOGO).catch(() => null);
+  const doc = new PDFDocument({ size: 'LETTER', margin: 0, autoFirstPage: false, bufferPages: true });
+  const chunks: Buffer[] = [];
+  doc.on('data', (c: Buffer) => chunks.push(c));
+  const done = new Promise<Buffer>((resolve) => doc.on('end', () => resolve(Buffer.concat(chunks))));
+  doc.addPage();
+  buildOpgwReport(doc, model, { logo, generatedOn: new Date().toISOString().slice(0, 10) });
+  doc.end();
+  return done;
+}
