@@ -166,6 +166,31 @@ export function staticMapUrl(view: MapView, key: string, maptype: 'roadmap' | 's
   return `https://maps.googleapis.com/maps/api/staticmap?${q.toString()}`;
 }
 
+/**
+ * The Mapbox Static Images URL for a view (10/14). Google Cloud is switched off
+ * on B&M's Google Workspace and nobody could get into the admin console to turn
+ * it on, so Mapbox is the map service: signs up with any email, no card.
+ *
+ * Mapbox draws 512-px tiles, so the same ground scale is ONE zoom level lower
+ * than the 256-px math in fitView/project. @2x for a sharp print; Mapbox caps
+ * the logical size at 1280 per side.
+ */
+export function mapboxStaticUrl(view: MapView, token: string, style = 'mapbox/streets-v12'): string {
+  const w = Math.min(1280, Math.round(view.width));
+  const h = Math.min(1280, Math.round(view.height));
+  const at = `${view.centerLng.toFixed(6)},${view.centerLat.toFixed(6)},${view.zoom - 1},0`;
+  return `https://api.mapbox.com/styles/v1/${style}/static/${at}/${w}x${h}@2x?access_token=${encodeURIComponent(token)}`;
+}
+
+/** Which map service builds the image: Mapbox when its token is set, else Google, else none. */
+export function mapImageUrl(view: MapView, env: { MAPBOX_TOKEN?: string; GOOGLE_MAPS_KEY?: string }): string | null {
+  const mb = (env.MAPBOX_TOKEN ?? '').trim();
+  if (mb) return mapboxStaticUrl(view, mb);
+  const g = (env.GOOGLE_MAPS_KEY ?? '').trim();
+  if (g) return staticMapUrl(view, g, 'roadmap');
+  return null;
+}
+
 /** A Google Maps directions link to a spot — the ROW entrance on the report. */
 export function directionsUrl(lat: number, lng: number): string {
   return `https://www.google.com/maps/dir/?api=1&destination=${lat.toFixed(6)},${lng.toFixed(6)}`;

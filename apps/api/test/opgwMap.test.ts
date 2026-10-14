@@ -4,7 +4,7 @@
  *
  * Run: npx tsx apps/api/test/opgwMap.test.ts
  */
-import { fitView, project, crowdedGroups, spreadPins, groupLetter, staticMapUrl, directionsUrl, type MapPin } from '../src/lib/opgwMap';
+import { fitView, project, crowdedGroups, spreadPins, groupLetter, staticMapUrl, mapboxStaticUrl, mapImageUrl, directionsUrl, type MapPin } from '../src/lib/opgwMap';
 
 let failures = 0;
 let passes = 0;
@@ -108,6 +108,16 @@ describe('links', () => {
   it('static map url carries center, zoom, size and the key', () => {
     const u = staticMapUrl({ centerLat: 32.4, centerLng: -96.5, zoom: 11, width: 640, height: 330 }, 'KEY');
     expect(u).toEqual('https://maps.googleapis.com/maps/api/staticmap?center=32.400000%2C-96.500000&zoom=11&size=640x330&scale=2&maptype=roadmap&key=KEY');
+  });
+  it('mapbox url: lng first, one zoom lower (512-px tiles), @2x', () => {
+    const u = mapboxStaticUrl({ centerLat: 32.4, centerLng: -96.5, zoom: 11, width: 640, height: 330 }, 'pk.TOKEN');
+    expect(u).toEqual('https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/-96.500000,32.400000,10,0/640x330@2x?access_token=pk.TOKEN');
+  });
+  it('mapbox wins when both are set; google when only google; nothing when neither', () => {
+    const v = { centerLat: 32.4, centerLng: -96.5, zoom: 11, width: 640, height: 330 };
+    expect(mapImageUrl(v, { MAPBOX_TOKEN: 'pk.A', GOOGLE_MAPS_KEY: 'G' })!.startsWith('https://api.mapbox.com')).toBeTrue();
+    expect(mapImageUrl(v, { GOOGLE_MAPS_KEY: 'G' })!.startsWith('https://maps.googleapis.com')).toBeTrue();
+    expect(mapImageUrl(v, { MAPBOX_TOKEN: '  ' })).toEqual(null);
   });
   it('directions link to the ROW entrance', () => {
     expect(directionsUrl(32.39, -96.57)).toEqual('https://www.google.com/maps/dir/?api=1&destination=32.390000,-96.570000');

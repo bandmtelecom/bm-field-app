@@ -27,6 +27,8 @@ services:
       - key: BACKUP_TOKEN
         sync: false          # SECRET — lets the weekly backup job read exports.
                              # 32+ chars or the automation door stays shut.
+      - key: MAPBOX_TOKEN
+        sync: false          # Mapbox public token (pk.…) for the OPGW report maps. Used first.
       - key: GOOGLE_MAPS_KEY
         sync: false          # Google Static Maps key for the OPGW report maps (0015).
                              # Blank = the report still builds, pins on a plain panel.

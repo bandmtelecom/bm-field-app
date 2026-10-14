@@ -7,7 +7,7 @@ import { getExportCaller } from '../lib/automation.js';
 import { buildFieldReport, type ReportJob } from '../lib/fieldReport.js';
 import { EXTRA_UNIT_LABELS } from '../lib/unitLabels.js';
 import { buildOpgwReport, type OpgwReportModel, type OpgwReportPoint, type OpgwReportMap } from '../lib/opgwReport.js';
-import { fitView, crowdedGroups, groupLetter, staticMapUrl, directionsUrl, type MapPin } from '../lib/opgwMap.js';
+import { fitView, crowdedGroups, groupLetter, mapImageUrl, directionsUrl, type MapPin } from '../lib/opgwMap.js';
 
 export const report = Router();
 
@@ -220,7 +220,8 @@ async function opgwPdf(job: any): Promise<Buffer> {
     .filter((p) => p.lat != null && p.lng != null)
     .map((p) => ({ label: p.label, name: p.name, lat: p.lat!, lng: p.lng!, kind: p.kind }));
 
-  const key = (process.env.GOOGLE_MAPS_KEY ?? '').trim();
+  // Mapbox (MAPBOX_TOKEN) first, Google (GOOGLE_MAPS_KEY) if that is all that is set.
+  const hasMapService = !!mapImageUrl({ centerLat: 0, centerLng: 0, zoom: 1, width: 1, height: 1 }, process.env);
   let main: OpgwReportMap | null = null;
   const closeups: OpgwReportMap[] = [];
 
@@ -237,8 +238,8 @@ async function opgwPdf(job: any): Promise<Buffer> {
     }
     // all map images at once
     const [mainImg, ...closeImgs] = await Promise.all([
-      fetchMap(key ? staticMapUrl(view, key, 'roadmap') : null),
-      ...closeups.map((c) => fetchMap(key ? staticMapUrl(c.view, key, 'roadmap') : null)),
+      fetchMap(mapImageUrl(view, process.env)),
+      ...closeups.map((c) => fetchMap(mapImageUrl(c.view, process.env))),
     ]);
     main.image = mainImg;
     closeups.forEach((c, i) => { c.image = closeImgs[i]; });
@@ -254,7 +255,7 @@ async function opgwPdf(job: any): Promise<Buffer> {
     identifier: job.identifier ?? null,
     title: job.title ?? null,
     points, main, closeups,
-    noMapKey: !key,
+    noMapKey: !hasMapService,
   };
 
   const logo = await readFile(LOGO).catch(() => null);
