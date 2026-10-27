@@ -51,9 +51,9 @@ report.get('/jobs/:id/report.pdf', async (req, res) => {
     const { data: visits } = await admin
       .from('visits')
       .select(`
-        id, visit_date, report_type, techs, narrative, status_flag,
+        id, visit_date, created_at, report_type, techs, narrative, status_flag,
         locations(
-          id, pm_location_no, job_location_no, revisit_of,
+          id, pm_location_no, job_location_no, revisit_of, location_kind, enclosure_of,
           techs, structure_type, structure_owner, building_address,
           gps_lat, gps_lng, enclosure_new, enclosure_model, case_action,
           splice_type, splice_count, trays_added, test_fiber_count, test_type,
@@ -67,7 +67,9 @@ report.get('/jobs/:id/report.pdf', async (req, res) => {
         )
       `)
       .eq('job_id', req.params.id)
-      .order('visit_date', { ascending: true });
+      .order('visit_date', { ascending: true })
+      // two visits on one day: the one started first is the earlier trip
+      .order('created_at', { ascending: true });
 
     const byOrd = (x: any[]) => [...(x ?? [])].sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0));
 
@@ -86,6 +88,12 @@ report.get('/jobs/:id/report.pdf', async (req, res) => {
         statusFlag: v.status_flag ?? null,
         narrative: v.narrative ?? null,
         locations: byOrd(v.locations).map((l: any) => ({
+          id: l.id,
+          // 0016. Rows filed before it are all MOP locations.
+          kind: (l.location_kind ?? 'mop') as 'mop' | 'repair' | 'rollaround',
+          revisitOf: l.revisit_of ?? null,
+          enclosureOf: l.enclosure_of ?? null,
+          ordinal: Number(l.ordinal ?? 0),
           closureCode: l.closures?.closure_code ?? null,
           pmLocationNo: l.pm_location_no ?? null,
           // B&M's job-wide number and whether this block is a return trip. Both

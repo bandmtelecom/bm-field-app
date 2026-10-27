@@ -14,6 +14,8 @@
  * fit, THEN draw.
  */
 
+import { orderReport, type LocationKind, type OrderInput } from './reportOrder.js';
+
 /**
  * Footage is typed free-hand by the crew ("22,590'", "see prints") and is
  * information only. Print it as typed; a bare number gets " ft" appended, which
@@ -39,6 +41,15 @@ export interface ReportPort {
 export interface ReportDowntime { hours: number | null; reason: string | null; }
 
 export interface ReportLocation {
+  /** Row id — return trips and second enclosures point back at it. */
+  id: string;
+  /** mop | repair | rollaround (0016). Each kind numbers on its own. */
+  kind: LocationKind;
+  revisitOf: string | null;
+  /** A second enclosure in the same hole as that location (0016). */
+  enclosureOf: string | null;
+  /** Position within its visit. */
+  ordinal: number;
   closureCode: string | null;
   /** The CUSTOMER's own location number, as the tech typed it. It repeats and
    *  it restarts — it is their filing, not ours — so it rides the small grey
@@ -364,19 +375,26 @@ export function buildFieldReport(
         : `${niceDate(dates[0])} – ${niceDate(dates[dates.length - 1])}`)
     : null);
   field('Visits', job.visits.length);
-  // Distinct HOLES, not report blocks. Four blocks that are really two holes
-  // worked twice is two locations and two return trips; counting the blocks
-  // overstates the job to the customer. Rows filed before the numbering
-  // migration each count as their own hole, which is what they were.
+
+  // ---- the order (Jason, Lumen, 10/27) -------------------------------------
+  // One entry per location, in number order, return trips nested under it;
+  // then repairs, then roll-arounds, then anything where nothing was spliced.
+  // The arithmetic lives in reportOrder.ts so it can be tested on its own.
+  type Row = ReportLocation & OrderInput & { visit: ReportVisit };
+  const rows: Row[] = job.visits.flatMap((v, vi) => v.locations.map((l) => ({
+    ...l, visit: v, visitIndex: vi,
+    pmLocationNo: l.pmLocationNo, jobLocationNo: l.jobLocationNo,
+    revisitOf: l.revisitOf, enclosureOf: l.enclosureOf,
+    spliceCount: l.spliceCount, ordinal: l.ordinal,
+  })));
+  const sections = orderReport(rows);
   {
-    const allLocs = job.visits.flatMap((v) => v.locations);
-    const holes = new Set(
-      allLocs.map((l, i) => (l.jobLocationNo != null ? `n${l.jobLocationNo}` : `row${i}`)),
-    ).size;
-    const returns = allLocs.filter((l) => l.isRevisit).length;
+    const places = sections.reduce((n, sec) => n + sec.places.length, 0);
+    const returns = sections.reduce((n, sec) =>
+      n + sec.places.reduce((m, p) => m + Math.max(0, p.trips.length - 1), 0), 0);
     field('Locations', returns
-      ? `${holes}  ·  ${returns} return trip${returns === 1 ? '' : 's'}`
-      : String(holes));
+      ? `${places}  ·  ${returns} return trip${returns === 1 ? '' : 's'}`
+      : String(places));
   }
   // Everybody who worked the job. The crew is recorded per location since
   // 8/28/26, so gather from there and fall back to the visit for older reports.
@@ -384,175 +402,201 @@ export function buildFieldReport(
 
   doc.y += 6;
 
-  // ======================= the running record ==============================
-  job.visits.forEach((v, vi) => {
+  /** A full-width navy-on-grey band: a section or the visit log. */
+  function band(text: string, right?: string) {
     ensure(54);
     doc.y += 6;
     const y = doc.y;
     doc.rect(M.left, y, W, 24).fillColor(BAND).fill();
     doc.font('Helvetica-Bold').fontSize(11).fillColor(NAVY)
-      .text(`Visit ${vi + 1} — ${niceDate(v.date)}`, M.left + 9, y + 7, {
-        width: W * 0.55, lineBreak: false,
-      });
-    const crew = tidyNames(crewOfVisit(v)).join(', ');
-    if (crew) {
+      .text(text, M.left + 9, y + 7, { width: W * 0.6, lineBreak: false });
+    if (right) {
       doc.font('Helvetica').fontSize(8.5).fillColor(MUTED)
-        .text(crew, M.left + W * 0.55, y + 8, {
-          width: W * 0.45 - 9, align: 'right', lineBreak: false,
-        });
+        .text(right, M.left + W * 0.6, y + 8, { width: W * 0.4 - 9, align: 'right', lineBreak: false });
     }
     doc.y = y + 30;
     doc.fillColor(TEXT);
+  }
 
-    if (v.statusFlag) field('Status', STATUS[v.statusFlag] ?? v.statusFlag);
-    if (v.narrative) field('Summary', v.narrative);
+  // ======================= the visit log ===================================
+  // The day-by-day summary the crews write still belongs on the report — it is
+  // just no longer what the locations hang off. One short entry per visit.
+  if (job.visits.length) {
+    band('Visit log', `${job.visits.length} visit${job.visits.length === 1 ? '' : 's'}`);
+    job.visits.forEach((v, vi) => {
+      const crew = tidyNames(crewOfVisit(v)).join(', ');
+      const head = `Visit ${vi + 1} — ${niceDate(v.date)}${crew ? `   ·   ${crew}` : ''}`;
+      ensure(18 + measure(head, 'Helvetica-Bold', 9.5, IW));
+      doc.font('Helvetica-Bold').fontSize(9.5).fillColor(TEXT).text(head, IND, doc.y, { width: IW });
+      doc.y += 3;
+      if (v.statusFlag) field('Status', STATUS[v.statusFlag] ?? v.statusFlag);
+      if (v.narrative) field('Summary', v.narrative);
+      doc.y += 3;
+    });
+  }
 
-    v.locations.forEach((l, li) => {
-      ensure(46);
+  // ======================= the locations ===================================
+  const showSectionBands = sections.length > 1 || (sections[0] && sections[0].id !== 'mop');
+  for (const sec of sections) {
+    if (showSectionBands) {
+      band(sec.title, `${sec.places.length} location${sec.places.length === 1 ? '' : 's'}`);
+    } else {
+      band(sec.title);
+    }
+
+    for (const place of sec.places) {
+      const all = place.trips.flatMap((t) => t.rows);
+      const first = all[0];
+      ensure(60);
       doc.y += 4;
       doc.moveTo(M.left, doc.y).lineTo(doc.page.width - M.right, doc.y)
-        .lineWidth(0.5).strokeColor(LINE).stroke();
+        .lineWidth(0.8).strokeColor(NAVY).stroke();
       doc.y += 8;
 
-      // ---- the heading: B&M's number for this hole, on this job ------------
-      // ONE number, and it is the tech's. Austin, 9/1: "the only location number
-      // that goes on the report should be what the tech puts in." Where he left
-      // the box empty the database filled the next one in line on save, so by
-      // the time a report is generated there is always something here.
-      //
-      // For a day this line carried a second number of B&M's own with the
-      // tech's underneath it. The customer only cares about theirs.
-      //
-      // "Location" goes in front of a plain number and nothing else — the techs
-      // also type "1950 Stemmons", "West" and "Wayne ILA" into that box, and
-      // "Location 1950 Stemmons" reads like a mistake on a customer's report.
-      //
-      // The address joins it on the same line. Austin, 9/1: "i still want to
-      // have the address if that where we went." It was always recorded and
-      // never reached the top line, which is why crews typed "1950 Stemmons"
-      // into the number box to get it in front of the customer.
-      const num = (l.pmLocationNo ?? '').trim()
-        || (l.jobLocationNo != null ? String(l.jobLocationNo) : '');
-      const heading = [
-        !num ? 'Location' : (/^\d+$/.test(num) ? `Location ${num}` : num),
-        (l.buildingAddress ?? '').trim() || null,
-        l.isRevisit ? 'revisit' : null,
-      ].filter(Boolean).join('  ·  ');
-      doc.font('Helvetica-Bold').fontSize(11.5).fillColor(TEXT)
-        .text(heading, IND, doc.y, { width: IW });
+      // ---- the heading: the customer's number, then where ------------------
+      // "Location" in front of a plain number (5, 5.5); a name stands as typed;
+      // repairs and roll-arounds read "Repair 2", "Roll-around location 1".
+      // The address joins the line for a building (Austin, 9/1).
+      const address = all.map((r) => (r.buildingAddress ?? '').trim()).find(Boolean) ?? null;
+      const heading = [place.label, address].filter(Boolean).join('  ·  ');
+      doc.font('Helvetica-Bold').fontSize(12.5).fillColor(TEXT).text(heading, IND, doc.y, { width: IW });
+      const codes = [...new Set(all.map((r) => r.closureCode).filter(Boolean))].join(' / ');
       const sub = [
-        l.closureCode,
-        STRUCTURE[l.structureType ?? ''] ?? l.structureType,
-        l.structureOwner,
+        codes || null,
+        STRUCTURE[first.structureType ?? ''] ?? first.structureType,
+        first.structureOwner,
+        place.trips.length > 1 ? `${place.trips.length} trips` : null,
       ].filter(Boolean).join('  ·  ');
       if (sub) {
-        doc.font('Helvetica').fontSize(9).fillColor(MUTED)
-          .text(sub, IND, doc.y + 1, { width: IW });
+        doc.font('Helvetica').fontSize(9).fillColor(MUTED).text(sub, IND, doc.y + 1, { width: IW });
       }
       doc.y += 6;
       doc.fillColor(TEXT);
 
-      // Who was in this hole. On a night where the crew splits between two
-      // closures the customer's record should say which men were where.
-      const holeCrew = tidyNames(l.techs ?? []).join(', ');
-      if (holeCrew && holeCrew !== crew) field('Crew', holeCrew);
-      // (no Address row — it is on the heading above now, and saying it twice
-      // on one block just makes the report longer)
-      if (l.gpsLat != null && l.gpsLng != null) field('GPS', `${l.gpsLat}, ${l.gpsLng}`);
-      field('Enclosure', [l.enclosureModel, l.enclosureNew ? '(new)' : null]
-        .filter(Boolean).join(' ') || null);
-      field('Case', l.caseAction ? CASE_ACTION[l.caseAction] ?? l.caseAction : null);
-      if (l.spliceCount > 0) {
-        field('Splices', `${l.spliceCount} ${l.spliceType === 'ribbon' ? 'ribbon' : 'single fusion'}`);
-      }
-      field('Trays added', l.traysAdded);
-      if (l.testFiberCount > 0) {
-        field('Fibers tested',
-          `${l.testFiberCount}${l.testType ? ` (${l.testType.toUpperCase()})` : ''}`);
-      }
-      field('As found', l.asFound);
-      field('As built', l.asBuilt);
-      field('Notes', l.narrative);
+      place.trips.forEach((trip, ti) => {
+        const date = niceDate(trip.rows[0].visit.date);
+        const crew = tidyNames(trip.rows.flatMap((r) => r.techs ?? [])).join(', ');
+        const tripHead = place.trips.length > 1
+          ? `Trip ${ti + 1}  —  ${date}${crew ? `   ·   ${crew}` : ''}`
+          : `${date}${crew ? `   ·   ${crew}` : ''}`;
+        ensure(40);
+        doc.y += 2;
+        doc.font(place.trips.length > 1 ? 'Helvetica-Bold' : 'Helvetica')
+          .fontSize(9.5).fillColor(place.trips.length > 1 ? NAVY : MUTED)
+          .text(tripHead, IND, doc.y, { width: IW });
+        doc.y += 4;
+        doc.fillColor(TEXT);
 
-      if (l.cables.length) {
-        subhead('Cables');
-        // Compose whatever is present - a report must read correctly for a row
-        // captured last year and one captured today. `date_code` moved into the
-        // cable line on 8/25; `footage` came back as its own free-text box on
-        // 8/28 and is printed exactly as the tech typed it (a bare number gets
-        // " ft" appended, which is how the old integer rows were stored). There
-        // is no footage total any more - the values are not numbers. `role` is
-        // no longer captured; it is still shown when an older row has one rather
-        // than silently dropping detail the customer saw on a previous report.
-        const cableText = (c: typeof l.cables[number]) => [
-          c.count ?? '',
-          c.date_code ?? '',
-          footageLabel(c.footage),
-          c.role ?? '',
-        ].map((x) => String(x).trim()).filter(Boolean).join('  ');
-
-        table(
-          [{ head: 'Manufacturer', w: 110 }, { head: 'Direction', w: 80 },
-           { head: 'Cable', w: 300 }],
-          l.cables.map((c) => [c.manufacturer ?? '', c.direction ?? '', cableText(c)]),
-        );
-      }
-
-      if (l.ports.length) {
-        subhead('Panel ports');
-        table(
-          [{ head: 'Panel', w: 150 }, { head: 'Port', w: 90 },
-           { head: 'Position', w: 90 }, { head: 'Result', w: 90, align: 'right' }],
-          l.ports.map((p) => [
-            p.panel ?? '', p.port ?? '', p.position ?? '',
-            p.pass_fail ? p.pass_fail.toUpperCase() : '',
-          ]),
-        );
-      }
-
-      if (l.shots.length) {
-        subhead('OTDR shots');
-        table(
-          [{ head: 'Fiber', w: 130 }, { head: 'Direction', w: 90 },
-           { head: 'Distance', w: 80, align: 'right' }, { head: 'Event', w: 160 }],
-          l.shots.map((s) => [
-            s.fiber_group ?? '', s.direction ?? '',
-            s.distance_km != null ? `${s.distance_km} km` : '', s.event ?? '',
-          ]),
-        );
-      }
-
-      if (l.downtime.length) {
-        const hrs = l.downtime.reduce((s, x) => s + (Number(x.hours) || 0), 0);
-        subhead(`Downtime — ${hrs} hr`);
-        table(
-          [{ head: 'Hours', w: 60, align: 'right' }, { head: 'Reason', w: 380 }],
-          l.downtime.map((x) => [
-            String(x.hours ?? ''),
-            x.reason ? DOWNTIME_REASON[x.reason] ?? x.reason : 'Unspecified',
-          ]),
-        );
-      }
-
-      if (l.units.length) {
-        subhead('Additional work');
-        l.units.forEach((u) => {
-          const h = measure(`•  ${u}`, 'Helvetica', 9.5, IW);
-          ensure(h + 2);
-          doc.font('Helvetica').fontSize(9.5).fillColor(TEXT)
-            .text(`•  ${u}`, IND, doc.y, { width: IW });
-          doc.y += 2;
+        trip.rows.forEach((l, ei) => {
+          if (trip.rows.length > 1) {
+            // Two enclosures in one hole. Jason: call it location 5, say there
+            // was a tie cable between enclosures, give the notes of both.
+            subhead(`Enclosure ${ei + 1}${[l.enclosureModel, l.closureCode].filter(Boolean).length
+              ? ` — ${[l.enclosureModel, l.closureCode].filter(Boolean).join(' · ')}` : ''}`);
+            if (ei > 0) field('Tie cable', 'Second enclosure in the same hole — tie cable between enclosures, both spliced');
+          } else if (l.enclosureOf) {
+            // the second enclosure, spliced on a trip of its own
+            subhead(`Second enclosure${[l.enclosureModel, l.closureCode].filter(Boolean).length
+              ? ` — ${[l.enclosureModel, l.closureCode].filter(Boolean).join(' · ')}` : ''}`);
+            field('Tie cable', 'Second enclosure in the same hole — tie cable between enclosures');
+          }
+          locationBody(l);
         });
-      }
-    });
-
-    if (!v.locations.length) {
-      ensure(16);
-      doc.font('Helvetica-Oblique').fontSize(9.5).fillColor(MUTED)
-        .text('No locations recorded on this visit.', IND, doc.y, { width: IW });
-      doc.fillColor(TEXT);
+      });
     }
-  });
+  }
+
+  function locationBody(l: ReportLocation) {
+    // (the crew rides the trip line above — the men who were in this hole)
+    // (no Address row — it is on the heading above now, and saying it twice
+    // on one block just makes the report longer)
+    if (l.gpsLat != null && l.gpsLng != null) field('GPS', `${l.gpsLat}, ${l.gpsLng}`);
+    field('Enclosure', [l.enclosureModel, l.enclosureNew ? '(new)' : null]
+      .filter(Boolean).join(' ') || null);
+    field('Case', l.caseAction ? CASE_ACTION[l.caseAction] ?? l.caseAction : null);
+    if (l.spliceCount > 0) {
+      field('Splices', `${l.spliceCount} ${l.spliceType === 'ribbon' ? 'ribbon' : 'single fusion'}`);
+    }
+    field('Trays added', l.traysAdded);
+    if (l.testFiberCount > 0) {
+      field('Fibers tested',
+        `${l.testFiberCount}${l.testType ? ` (${l.testType.toUpperCase()})` : ''}`);
+    }
+    field('As found', l.asFound);
+    field('As built', l.asBuilt);
+    field('Notes', l.narrative);
+
+    if (l.cables.length) {
+      subhead('Cables');
+      // Compose whatever is present - a report must read correctly for a row
+      // captured last year and one captured today. `date_code` moved into the
+      // cable line on 8/25; `footage` came back as its own free-text box on
+      // 8/28 and is printed exactly as the tech typed it (a bare number gets
+      // " ft" appended, which is how the old integer rows were stored). There
+      // is no footage total any more - the values are not numbers. `role` is
+      // no longer captured; it is still shown when an older row has one rather
+      // than silently dropping detail the customer saw on a previous report.
+      const cableText = (c: typeof l.cables[number]) => [
+        c.count ?? '',
+        c.date_code ?? '',
+        footageLabel(c.footage),
+        c.role ?? '',
+      ].map((x) => String(x).trim()).filter(Boolean).join('  ');
+
+      table(
+        [{ head: 'Manufacturer', w: 110 }, { head: 'Direction', w: 80 },
+         { head: 'Cable', w: 300 }],
+        l.cables.map((c) => [c.manufacturer ?? '', c.direction ?? '', cableText(c)]),
+      );
+    }
+
+    if (l.ports.length) {
+      subhead('Panel ports');
+      table(
+        [{ head: 'Panel', w: 150 }, { head: 'Port', w: 90 },
+         { head: 'Position', w: 90 }, { head: 'Result', w: 90, align: 'right' }],
+        l.ports.map((p) => [
+          p.panel ?? '', p.port ?? '', p.position ?? '',
+          p.pass_fail ? p.pass_fail.toUpperCase() : '',
+        ]),
+      );
+    }
+
+    if (l.shots.length) {
+      subhead('OTDR shots');
+      table(
+        [{ head: 'Fiber', w: 130 }, { head: 'Direction', w: 90 },
+         { head: 'Distance', w: 80, align: 'right' }, { head: 'Event', w: 160 }],
+        l.shots.map((s) => [
+          s.fiber_group ?? '', s.direction ?? '',
+          s.distance_km != null ? `${s.distance_km} km` : '', s.event ?? '',
+        ]),
+      );
+    }
+
+    if (l.downtime.length) {
+      const hrs = l.downtime.reduce((s, x) => s + (Number(x.hours) || 0), 0);
+      subhead(`Downtime — ${hrs} hr`);
+      table(
+        [{ head: 'Hours', w: 60, align: 'right' }, { head: 'Reason', w: 380 }],
+        l.downtime.map((x) => [
+          String(x.hours ?? ''),
+          x.reason ? DOWNTIME_REASON[x.reason] ?? x.reason : 'Unspecified',
+        ]),
+      );
+    }
+
+    if (l.units.length) {
+      subhead('Additional work');
+      l.units.forEach((u) => {
+        const h = measure(`•  ${u}`, 'Helvetica', 9.5, IW);
+        ensure(h + 2);
+        doc.font('Helvetica').fontSize(9.5).fillColor(TEXT)
+          .text(`•  ${u}`, IND, doc.y, { width: IW });
+        doc.y += 2;
+      });
+    }
+  }
 
   if (!job.visits.length) {
     doc.font('Helvetica-Oblique').fontSize(10).fillColor(MUTED)

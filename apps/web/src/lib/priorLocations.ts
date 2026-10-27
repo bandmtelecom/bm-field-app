@@ -23,7 +23,7 @@ export async function loadPriorLocations(
     .from('locations')
     .select(`
       id, job_location_no, pm_location_no, closure_id, structure_type, structure_owner,
-      building_address, gps_lat, gps_lng, revisit_of,
+      building_address, gps_lat, gps_lng, revisit_of, location_kind, enclosure_of,
       closures(closure_code),
       cables(direction, count, manufacturer, ordinal),
       visits!inner(visit_date, job_id)
@@ -36,7 +36,9 @@ export async function loadPriorLocations(
   // to say about it, but it does not disappear the way the closure errors did.
   if (error) throw error;
 
-  const rows = ((data as any[]) ?? []).filter((r) => r.id !== excludeId);
+  // A second enclosure (0016) shares its partner's number, so it is not a
+  // separate place to go back to — same reason return trips are left out.
+  const rows = ((data as any[]) ?? []).filter((r) => r.id !== excludeId && !r.enclosure_of);
 
   return rows
     .map((r: any): PriorLocation => ({
@@ -51,6 +53,7 @@ export async function loadPriorLocations(
       gps_lat: r.gps_lat != null ? Number(r.gps_lat) : null,
       gps_lng: r.gps_lng != null ? Number(r.gps_lng) : null,
       visit_date: r.visits?.visit_date ?? null,
+      location_kind: (r.location_kind ?? 'mop') as PriorLocation['location_kind'],
       cables: [...((r.cables as any[]) ?? [])]
         .sort((a, b) => (a.ordinal ?? 0) - (b.ordinal ?? 0))
         .map((c) => [c.direction, c.count, c.manufacturer].filter(Boolean).join(' ').trim())

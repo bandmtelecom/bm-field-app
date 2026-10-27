@@ -52,16 +52,24 @@ export const STRUCTURE_LABELS: Record<StructureType, string> = {
 export function locationNumberLabel(l: {
   job_location_no?: number | null;
   pm_location_no?: string | null;
+  location_kind?: string | null;
 }): string {
   const typed = (l.pm_location_no ?? '').trim();
   const no = typed || (l.job_location_no != null ? String(l.job_location_no) : '');
+  // 0016 — Jason (Lumen), 10/27: "call them out as repair locations… Repair 1,
+  // repair 2", "Roll-around location 1, Roll-around location 2". Each kind
+  // numbers on its own. Same words as the report (apps/api reportOrder.ts).
+  if (l.location_kind === 'repair') return no ? `Repair ${no}` : 'Repair';
+  if (l.location_kind === 'rollaround') return no ? `Roll-around location ${no}` : 'Roll-around location';
   if (!no) return 'Location';
-  return /^\d+$/.test(no) ? `Location ${no}` : no;
+  // 5 and 5.5 are positions on the plan; "1950 Stemmons" is a name.
+  return /^\d+(\.\d+)?$/.test(no) ? `Location ${no}` : no;
 }
 
 /**
  * The whole label: the number, then WHERE it was, then whether it was a return
- * trip. `Location 2 · 1950 Stemmons`, or just `Location 2` on a hole.
+ * trip or a second enclosure. `Location 2 · 1950 Stemmons`, or just
+ * `Location 2` on a hole.
  *
  * Austin, 9/1: *"i still want to have the address if that where we went."* The
  * address has always been recorded — it just never reached the top line, so
@@ -72,13 +80,16 @@ export function locationNumberLabel(l: {
 export function locationTitle(l: {
   job_location_no?: number | null;
   pm_location_no?: string | null;
+  location_kind?: string | null;
   building_address?: string | null;
   revisit_of?: string | null;
+  enclosure_of?: string | null;
 }): string {
   return [
     locationNumberLabel(l),
     (l.building_address ?? '').trim() || null,
     l.revisit_of ? 'revisit' : null,
+    l.enclosure_of ? '2nd enclosure' : null,
   ].filter(Boolean).join(' · ');
 }
 

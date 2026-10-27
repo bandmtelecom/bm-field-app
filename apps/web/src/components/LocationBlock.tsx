@@ -14,7 +14,7 @@ import {
 } from '../lib/cableSuggest';
 import ClosurePicker from './ClosurePicker';
 
-import type { PriorLocation } from '../lib/locationNo';
+import type { PriorLocation, LocationKind } from '../lib/locationNo';
 
 // Re-exported so the pages keep importing their location types from one place.
 // It lives in lib/locationNo.ts because that module has no React and no
@@ -27,6 +27,13 @@ export interface LocationForm {
    *  null = a hole we have not been in yet on this job. Only a tech can say
    *  which it is, so this is a choice on the form and never a guess. */
   revisit_of: string | null;
+  /** 0016 — a second enclosure in the same hole as that location (a tie cable
+   *  between enclosures). Prints under the same number; bills its own re-enter
+   *  and splices, shares the setup. Never set together with revisit_of. */
+  enclosure_of: string | null;
+  /** 0016 — Location on the plan, a Repair, or a Roll-around. Each numbers on
+   *  its own. A revisit or second enclosure takes the kind of its partner. */
+  location_kind: LocationKind;
   /** The men who worked THIS hole, as typed. Downtime bills per tech against
    *  this list, so when a crew splits up each hole carries its own names. */
   techs: string;
@@ -62,7 +69,7 @@ export interface LocationForm {
 
 export function emptyLocation(): LocationForm {
   return {
-    pm_location_no: '', revisit_of: null,
+    pm_location_no: '', revisit_of: null, enclosure_of: null, location_kind: 'mop',
     techs: '', structure_type: 'mh', structure_owner: '', building_address: '',
     gps_lat: '', gps_lng: '', hole_ref: '', enclosure_new: false, enclosure_model: '',
     case_action: '', new_case_material_code: '', splice_type: '', splice_count: '',
@@ -95,6 +102,14 @@ export default function LocationBlock({
   const revisitTarget = value.revisit_of
     ? priorLocations.find((p) => p.id === value.revisit_of) ?? null
     : null;
+  /** The hole this entry is a second enclosure in (0016). */
+  const enclosureTarget = value.enclosure_of
+    ? priorLocations.find((p) => p.id === value.enclosure_of) ?? null
+    : null;
+  const holeTarget = revisitTarget ?? enclosureTarget;
+  /** The kind that will actually be saved — a revisit or a second enclosure
+   *  takes its partner's, the same as the database does. */
+  const kind: LocationKind = holeTarget ? (holeTarget.location_kind ?? 'mop') : value.location_kind;
   const isBuilding = value.structure_type === 'building';
   /** What the app read out of the techs box — shown so nothing gets swallowed. */
   const crew = splitNames(value.techs);
@@ -249,6 +264,8 @@ export default function LocationBlock({
         <strong>
           {locationTitle({
             pm_location_no: value.pm_location_no.trim() || autoNo || null,
+            location_kind: kind,
+            enclosure_of: value.enclosure_of,
             // The address rides the same line, so a man in a building sees the
             // report line forming as he types it.
             building_address: isBuilding ? value.building_address : null,
@@ -269,18 +286,20 @@ export default function LocationBlock({
           burning a new one. */}
       {priorLocations.length > 0 && (
         <>
-          <label>Have we been in this hole before on this job?</label>
+          <label>Is this a hole that's already on this job?</label>
           <select
-            value={value.revisit_of ?? ''}
+            value={value.revisit_of ?? value.enclosure_of ?? ''}
             onChange={(e) => {
               const id = e.target.value || null;
               const hit = id ? priorLocations.find((p) => p.id === id) ?? null : null;
-              // Back in the same hole means the same closure, so attach it and
-              // save the man picking it twice. Never overwrite one he has
-              // already chosen by hand — he was there and the list was not.
+              // Picking a hole starts as "back for another trip" — the common
+              // case. Back in the same hole means the same closure, so attach
+              // it and save the man picking it twice. Never overwrite one he
+              // has already chosen by hand — he was there and the list was not.
               const takeClosure = hit?.closure_id && !value.closure_id;
               set({
                 revisit_of: id,
+                enclosure_of: null,
                 closure_id: takeClosure ? hit!.closure_id : value.closure_id,
                 closure_code: takeClosure ? hit!.closure_code : value.closure_code,
               });
@@ -292,14 +311,58 @@ export default function LocationBlock({
             ))}
           </select>
 
+          {holeTarget && (
+            <>
+              {/* Jason (Lumen), 10/27: two enclosures in a hole you are already
+                  at is the SAME location, with a tie cable between them —
+                  "calling the second location 5.5 just creates confusion". It
+                  still bills its own re-enter and splices, one setup. */}
+              <label>What brought you back to it?</label>
+              <div className="seg">
+                <button type="button" className={value.revisit_of ? 'on' : ''}
+                  onClick={() => {
+                    const id = holeTarget.id;
+                    const takeClosure = holeTarget.closure_id && !value.closure_id;
+                    set({
+                      revisit_of: id, enclosure_of: null,
+                      closure_id: takeClosure ? holeTarget.closure_id : value.closure_id,
+                      closure_code: takeClosure ? holeTarget.closure_code : value.closure_code,
+                    });
+                  }}>
+                  Another trip to it
+                </button>
+                <button type="button" className={value.enclosure_of ? 'on' : ''}
+                  onClick={() => {
+                    // A different enclosure means a different closure: drop the
+                    // one that came along with "another trip". Same hole, so
+                    // the structure and GPS carry over when he hasn't typed any.
+                    const autoClosure = value.closure_id && value.closure_id === holeTarget.closure_id;
+                    set({
+                      enclosure_of: holeTarget.id, revisit_of: null,
+                      closure_id: autoClosure ? null : value.closure_id,
+                      closure_code: autoClosure ? null : value.closure_code,
+                      structure_type: (holeTarget.structure_type as LocationForm['structure_type']) ?? value.structure_type,
+                      structure_owner: value.structure_owner || holeTarget.structure_owner || '',
+                      building_address: value.building_address || holeTarget.building_address || '',
+                      gps_lat: value.gps_lat || (holeTarget.gps_lat != null ? String(holeTarget.gps_lat) : ''),
+                      gps_lng: value.gps_lng || (holeTarget.gps_lng != null ? String(holeTarget.gps_lng) : ''),
+                    });
+                  }}>
+                  A 2nd enclosure in it
+                </button>
+              </div>
+            </>
+          )}
+
           {revisitTarget ? (
             <div className="card" style={{ borderColor: 'var(--ok)', marginTop: 6 }}>
               <strong className="small">
-                This goes on the report as{' '}
+                This goes on the report under{' '}
                 {locationTitle({
                   pm_location_no: revisitTarget.pm_location_no,
+                  location_kind: revisitTarget.location_kind,
                   building_address: revisitTarget.building_address,
-                })} again
+                })} as another trip
                 {revisitTarget.closure_code ? ` (${revisitTarget.closure_code})` : ''}.
               </strong>
               <p className="muted small" style={{ marginTop: 4 }}>
@@ -308,12 +371,52 @@ export default function LocationBlock({
                   : 'No cables were recorded here last time, so check the GPS and the structure before you leave this set.'}
               </p>
             </div>
+          ) : enclosureTarget ? (
+            <div className="card" style={{ borderColor: 'var(--ok)', marginTop: 6 }}>
+              <strong className="small">
+                This goes on the report under{' '}
+                {locationTitle({
+                  pm_location_no: enclosureTarget.pm_location_no,
+                  location_kind: enclosureTarget.location_kind,
+                  building_address: enclosureTarget.building_address,
+                })} as the 2nd enclosure, with a tie cable between them.
+              </strong>
+              <p className="muted small" style={{ marginTop: 4 }}>
+                Record this enclosure's own cables and splices below. It bills its
+                own re-enter and splices; the hole is only set up once.
+              </p>
+            </div>
           ) : (
             <p className="muted small" style={{ marginTop: 4 }}>
               Say yes only if it's the same hole. Match the cables, not the GPS —
               two closures can sit thirty feet apart.
             </p>
           )}
+        </>
+      )}
+
+      {/* ---- what kind of location (0016) -----------------------------------
+          Jason (Lumen), 10/27: repairs read "Repair 1, 2, 3", rolling around
+          damage reads "Roll-around location 1, 2, 3", and only a change to the
+          plan gets a new plan number like 5.5. Repairs and roll-arounds number
+          themselves in the order they were done. A revisit or second enclosure
+          is whatever its hole already is, so the buttons step aside. */}
+      {!holeTarget && (
+        <>
+          <label>What is this location?</label>
+          <div className="seg">
+            {([['mop', 'On the plan'], ['repair', 'Repair'], ['rollaround', 'Roll-around']] as const).map(([k, l]) => (
+              <button type="button" key={k} className={value.location_kind === k ? 'on' : ''}
+                onClick={() => set({ location_kind: k })}>{l}</button>
+            ))}
+          </div>
+          <p className="muted small" style={{ marginTop: 4 }}>
+            {value.location_kind === 'repair'
+              ? 'A new spot for a simple repair. Numbers itself: Repair 1, Repair 2…'
+              : value.location_kind === 'rollaround'
+                ? 'Rolling around damage. Numbers itself: Roll-around location 1, 2…'
+                : 'A location on the MOP. A new one added by a plan change between 5 and 6 is 5.5.'}
+          </p>
         </>
       )}
 
@@ -327,7 +430,7 @@ export default function LocationBlock({
               whenever the structure is a Building, and it reaches the top line
               of the report from there — which is what crews were trying to do
               by typing "1950 Stemmons" into this box. */}
-          <label>Location #</label>
+          <label>{kind === 'repair' ? 'Repair #' : kind === 'rollaround' ? 'Roll-around #' : 'Location #'}</label>
           <input value={value.pm_location_no}
             placeholder={autoNo ? `blank = ${autoNo}` : 'e.g. 5'}
             onChange={(e) => set({ pm_location_no: e.target.value })} />
@@ -720,7 +823,7 @@ export function priorLabel(p: PriorLocation): string {
   const bits = [
     locationTitle({
       pm_location_no: p.pm_location_no, job_location_no: p.job_location_no,
-      building_address: p.building_address,
+      location_kind: p.location_kind, building_address: p.building_address,
     }),
     p.closure_code,
     STRUCTURE_LABELS[p.structure_type as keyof typeof STRUCTURE_LABELS] ?? p.structure_type,

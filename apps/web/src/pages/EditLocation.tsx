@@ -111,6 +111,8 @@ export default function EditLocation() {
         ...emptyLocation(),
         pm_location_no: str(a.pm_location_no),
         revisit_of: a.revisit_of ?? null,
+        enclosure_of: a.enclosure_of ?? null,
+        location_kind: a.location_kind ?? 'mop',
         // Pre-0011 rows have no crew of their own; fall back to whoever the
         // visit said was out, so the office sees names rather than an empty box.
         techs: joinNames(
@@ -217,6 +219,11 @@ export default function EditLocation() {
         // the row a fresh number at the end of the job. Both are the database's
         // decision, not this screen's — see migration 0012.
         revisit_of: form.revisit_of,
+        // 0016. Switching the kind with the number left alone renumbers it in
+        // the new kind (a plan "7" does not become "Repair 7"); type a number
+        // and it stands.
+        enclosure_of: form.revisit_of ? null : form.enclosure_of,
+        location_kind: form.location_kind,
         techs: splitNames(form.techs),
         hole_ref: form.hole_ref || null, structure_type: form.structure_type,
         structure_owner: form.structure_owner || null,
@@ -290,7 +297,10 @@ export default function EditLocation() {
   // What clearing the box would give this location back. `prior` already
   // excludes this row, so the number it currently holds does not block itself.
   const autoNo = form
-    ? previewPmNumbers(prior, [{ pm_location_no: '', revisit_of: form.revisit_of }])[0]
+    ? previewPmNumbers(prior, [{
+        pm_location_no: '', revisit_of: form.revisit_of,
+        enclosure_of: form.enclosure_of, location_kind: form.location_kind,
+      }])[0]
     : null;
 
   if (err && !form) return (
@@ -327,10 +337,12 @@ export default function EditLocation() {
             The customer sees this as{' '}
             <strong>{locationTitle({
               pm_location_no: form.pm_location_no, job_location_no: jobNo,
+              location_kind: form.location_kind, enclosure_of: form.enclosure_of,
               building_address: form.structure_type === 'building' ? form.building_address : null,
             })}</strong>{' '}
             on {meta?.bm ?? 'this job'}
-            {form.revisit_of ? ' — filed as a return trip to that hole.' : '.'}
+            {form.revisit_of ? ' — filed as a return trip to that hole.'
+              : form.enclosure_of ? ' — filed as a 2nd enclosure in that hole.' : '.'}
             {' '}Change it in the <strong>Location #</strong> box below. Clear it
             and the app takes the next number in line on this job.
           </p>

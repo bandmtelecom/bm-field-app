@@ -43,7 +43,7 @@ export default function FinishVisit() {
         .select('id, bm_number, billing_mode, title').eq('id', jobId).single();
       setJob(j);
       const { data: v } = await supabase.from('visits')
-        .select('id, visit_date, status, reporter_id, narrative, status_flag, lead_hours, lead_start, techs, locations(id, pm_location_no, job_location_no, building_address, revisit_of, structure_type, techs, ordinal)')
+        .select('id, visit_date, status, reporter_id, narrative, status_flag, lead_hours, lead_start, techs, locations(id, pm_location_no, job_location_no, building_address, revisit_of, location_kind, enclosure_of, structure_type, techs, ordinal)')
         .eq('id', visitId).single();
       setVisit(v);
       if (v) {

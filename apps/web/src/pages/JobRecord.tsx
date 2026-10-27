@@ -13,7 +13,7 @@ import { visitDateProblem, isBackdated, shortDay } from '../lib/visitDate';
 // Every column the read-only detail panel needs, pulled in one query with the
 // visit so tapping a location is instant (child tables load on demand).
 const LOCATION_COLS = `
-  id, pm_location_no, job_location_no, revisit_of,
+  id, pm_location_no, job_location_no, revisit_of, location_kind, enclosure_of,
   techs, hole_ref, structure_type, structure_owner, building_address,
   gps_lat, gps_lng, enclosure_new, enclosure_model, case_action, new_case_material_code,
   splice_type, splice_count, trays_added, tray_material_code,

@@ -89,6 +89,11 @@ export async function saveLocation(a: SaveLocationArgs): Promise<SaveLocationRes
     // The tech said this is a hole we have already been in on this job. The
     // database reads it and gives the row that hole's number back.
     revisit_of: L.revisit_of,
+    // 0016: a second enclosure in a hole already on this job, and the kind
+    // (plan / repair / roll-around). The database gives a revisit or a second
+    // enclosure its partner's kind and number, and numbers each kind on its own.
+    enclosure_of: L.revisit_of ? null : L.enclosure_of,
+    location_kind: L.location_kind,
     tech_id: userId, techs: splitNames(L.techs),
     hole_ref: L.hole_ref || null, structure_type: L.structure_type,
     structure_owner: L.structure_owner || null, building_address: L.building_address || null,

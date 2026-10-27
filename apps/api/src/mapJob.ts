@@ -3,6 +3,7 @@
 // every unit regardless of who triggered the invoice.
 
 import { admin } from './supabase.js';
+import { shareEnclosureHoles } from './lib/enclosureHoles.js';
 import type { JobInput, VisitInput, LocationInput, StructureType, CaseAction, SpliceType } from '@bm/billing';
 
 export async function loadJobInput(jobId: string): Promise<JobInput> {
@@ -25,7 +26,7 @@ export async function loadJobInput(jobId: string): Promise<JobInput> {
     const { data: locations } = await admin
       .from('locations')
       .select(`
-        id, closure_id, structure_type, hole_ref, gps_lat, gps_lng, techs,
+        id, closure_id, structure_type, hole_ref, enclosure_of, gps_lat, gps_lng, techs,
         case_action, enclosure_new, new_case_material_code, splice_type, splice_count,
         trays_added, tray_material_code, test_fiber_count, test_type,
         closures ( closure_code )
@@ -75,6 +76,19 @@ export async function loadJobInput(jobId: string): Promise<JobInput> {
         extraUnits,
       });
     }
+
+    // A second enclosure in the same hole (0016) shares that hole's ONE
+    // setup/teardown and still bills its own re-enter and splices — the 26-356
+    // rule (Lumen-0056 + Lumen-0057, two closures, one manhole). The engine
+    // groups holes by hole_ref, else structure@GPS; give the second enclosure
+    // exactly the key its partner gets, so a missing or mistyped GPS on either
+    // one can never bill the hole twice. Only within one visit: a different
+    // night is a different setup, as it always was.
+    const enclosureOf = new Map<string, string>();
+    for (const l of locations ?? []) {
+      if ((l as any).enclosure_of) enclosureOf.set(l.id, (l as any).enclosure_of as string);
+    }
+    shareEnclosureHoles(locInputs, enclosureOf);
 
     visitInputs.push({
       id: v.id,

@@ -12,6 +12,10 @@
  * died in the first test run.
  */
 
+/** What kind of location (0016). Each kind numbers on its own: Location 5,
+ *  Repair 2, Roll-around location 1. */
+export type LocationKind = 'mop' | 'repair' | 'rollaround';
+
 /**
  * A hole already recorded on this job, offered to a tech as "we've been here
  * before". Everything a man can check against what he is looking at — and the
@@ -30,6 +34,8 @@ export interface PriorLocation {
   gps_lat: number | null;
   gps_lng: number | null;
   visit_date: string | null;
+  /** mop | repair | rollaround (0016). Rows filed before it are 'mop'. */
+  location_kind?: LocationKind;
   /** "N 312 Corning", "S 312 Corning" — what was in the hole last time. */
   cables: string[];
 }
@@ -66,26 +72,44 @@ export function highestNumber(values: (string | null | undefined)[]): number {
  */
 export function previewPmNumbers(
   prior: PriorLocation[],
-  blocks: { pm_location_no: string; revisit_of: string | null }[],
+  blocks: {
+    pm_location_no: string;
+    revisit_of: string | null;
+    enclosure_of?: string | null;
+    location_kind?: LocationKind;
+  }[],
 ): string[] {
-  const claimed: (string | null)[] = prior.map((p) => p.pm_location_no);
+  // Each kind counts on its own (0016) — Repair 2 must never push the next
+  // MOP location to 3. A revisit or a second enclosure takes the kind of the
+  // location it points at, the same way the database does.
+  const kindOfPrior = (p: PriorLocation): LocationKind => p.location_kind ?? 'mop';
+  const kindOfBlock = (b: (typeof blocks)[number]): LocationKind => {
+    const target = b.revisit_of ?? b.enclosure_of ?? null;
+    const hit = target ? prior.find((p) => p.id === target) : null;
+    return hit ? kindOfPrior(hit) : (b.location_kind ?? 'mop');
+  };
   // A number typed into ANY block on this screen is taken, including one
   // further down the page — otherwise the first blank hands out a 6 that the
   // man has already typed into the block below it.
-  claimed.push(...blocks.map((b) => b.pm_location_no));
+  const claimed: { kind: LocationKind; no: string | null }[] = [
+    ...prior.map((p) => ({ kind: kindOfPrior(p), no: p.pm_location_no })),
+    ...blocks.map((b) => ({ kind: kindOfBlock(b), no: b.pm_location_no })),
+  ];
 
   return blocks.map((b) => {
     const typed = (b.pm_location_no ?? '').trim();
     if (typed) return typed;
 
-    if (b.revisit_of) {
-      const target = prior.find((p) => p.id === b.revisit_of);
-      const fromHole = (target?.pm_location_no ?? '').trim();
+    const target = b.revisit_of ?? b.enclosure_of ?? null;
+    if (target) {
+      const hit = prior.find((p) => p.id === target);
+      const fromHole = (hit?.pm_location_no ?? '').trim();
       if (fromHole) return fromHole;
     }
 
-    const next = String(highestNumber(claimed) + 1);
-    claimed.push(next);
+    const kind = kindOfBlock(b);
+    const next = String(highestNumber(claimed.filter((c) => c.kind === kind).map((c) => c.no)) + 1);
+    claimed.push({ kind, no: next });
     return next;
   });
 }

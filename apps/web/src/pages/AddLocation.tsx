@@ -82,7 +82,10 @@ export default function AddLocation() {
   // The number this location ends up with — what he typed, or the next one in
   // line. Same arithmetic the database runs on insert.
   const autoNo = previewPmNumbers(prior, [form])[0] ?? null;
-  const label = locationTitle({ pm_location_no: autoNo ?? String(count + 1) });
+  const label = locationTitle({
+    pm_location_no: autoNo ?? String(count + 1),
+    location_kind: form.location_kind,
+  });
 
   async function submit() {
     if (!jobId || !visitId || !job) return;

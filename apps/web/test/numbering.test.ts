@@ -179,5 +179,43 @@ describe('the address rides the same line', () => {
   });
 });
 
+describe('0016 — each kind numbers on its own', () => {
+  const k = (pm: string, kind: 'mop' | 'repair' | 'rollaround', id = `${kind}${pm}`): PriorLocation =>
+    ({ ...hole(pm, id), location_kind: kind });
+  const blank = (kind: 'mop' | 'repair' | 'rollaround', o: any = {}) =>
+    ({ pm_location_no: '', revisit_of: null, location_kind: kind, ...o });
+
+  it('repairs do not push the plan count', () => {
+    const prior = [k('1', 'mop'), k('2', 'mop'), k('1', 'repair'), k('2', 'repair'), k('3', 'repair')];
+    expect(previewPmNumbers(prior, [blank('mop')])).toEqual(['3']);
+  });
+  it('the next repair counts repairs only', () => {
+    const prior = [k('1', 'mop'), k('9', 'mop'), k('1', 'repair')];
+    expect(previewPmNumbers(prior, [blank('repair')])).toEqual(['2']);
+  });
+  it('first roll-around is 1', () => {
+    expect(previewPmNumbers([k('4', 'mop'), k('2', 'repair')], [blank('rollaround')])).toEqual(['1']);
+  });
+  it('a 5.5 typed on the plan does not move the count', () => {
+    expect(previewPmNumbers([k('5', 'mop'), k('5.5', 'mop')], [blank('mop')])).toEqual(['6']);
+  });
+  it('a 2nd enclosure takes its hole\'s number', () => {
+    const prior = [k('5', 'mop', 'e1'), k('6', 'mop')];
+    expect(previewPmNumbers(prior, [blank('mop', { enclosure_of: 'e1' })])).toEqual(['5']);
+  });
+  it('a revisit to Repair 1 reads Repair 1, whatever the buttons say', () => {
+    const prior = [k('1', 'repair', 'r1'), k('2', 'repair')];
+    expect(previewPmNumbers(prior, [blank('mop', { revisit_of: 'r1' })])).toEqual(['1']);
+  });
+  it('labels', () => {
+    expect([
+      locationTitle({ pm_location_no: '2', location_kind: 'repair' }),
+      locationTitle({ pm_location_no: '1', location_kind: 'rollaround' }),
+      locationTitle({ pm_location_no: '5.5' }),
+      locationTitle({ pm_location_no: '5', enclosure_of: 'x' }),
+    ]).toEqual(['Repair 2', 'Roll-around location 1', 'Location 5.5', 'Location 5 · 2nd enclosure']);
+  });
+});
+
 console.log(`\n${passes} passed, ${failures} failed`);
 process.exit(failures ? 1 : 0);
