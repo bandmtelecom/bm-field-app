@@ -7,6 +7,7 @@ import {
 } from '../lib/options';
 import { STRUCTURE_LABELS, locationTitle } from '../lib/types';
 import { parseNum, splitNames } from '../lib/num';
+import { grabBestFix, fixMessage, accuracyLabel, isRough, fmt } from '../lib/gpsGrab';
 import { lastCablesForClosure, lastCablesForLocation, cableLabel } from '../lib/closures';
 import {
   hasAnyCableContent, suggestionAge, type CableSuggestion,
@@ -137,6 +138,9 @@ export default function LocationBlock({
   // at the top of lib/cableSuggest.ts.
   const [cableOffer, setCableOffer] = useState<CableSuggestion | null>(null);
   const [offerDismissed, setOfferDismissed] = useState(false);
+  // GPS Grab: listening state + what to tell the tech about the reading.
+  const [gpsBusy, setGpsBusy] = useState(false);
+  const [gpsNote, setGpsNote] = useState<{ text: string; rough: boolean } | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -195,13 +199,23 @@ export default function LocationBlock({
     set({ photos: value.photos.filter((_, x) => x !== i) });
   }
 
+  // Listens for up to 20 s and keeps the best reading — see lib/gpsGrab.ts for
+  // why (26-448 Location 2 was saved 300-400 ft off from a first-guess fix).
   function grabGps() {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      (p) => set({ gps_lat: p.coords.latitude.toFixed(6), gps_lng: p.coords.longitude.toFixed(6) }),
-      () => alert('Could not get GPS — enter it manually.'),
-      { enableHighAccuracy: true, timeout: 10000 },
-    );
+    if (gpsBusy) return;
+    setGpsBusy(true);
+    setGpsNote({ text: 'Getting a GPS lock… hold still, up to 20 seconds.', rough: false });
+    const { done } = grabBestFix((best) => {
+      set({ gps_lat: fmt(best.lat), gps_lng: fmt(best.lng) });
+      setGpsNote({ text: `Getting a GPS lock… ${accuracyLabel(best.accuracyFt)} so far.`, rough: false });
+    });
+    done
+      .then((f) => {
+        set({ gps_lat: fmt(f.lat), gps_lng: fmt(f.lng) });
+        setGpsNote({ text: fixMessage(f), rough: isRough(f) });
+      })
+      .catch(() => setGpsNote({ text: 'Could not get GPS — check the app has location permission, or type it in.', rough: true }))
+      .finally(() => setGpsBusy(false));
   }
   function toggleExtra(code: string) {
     if (value.extras.includes(code)) {
@@ -373,10 +387,15 @@ export default function LocationBlock({
 
       <label>GPS</label>
       <div className="row">
-        <input placeholder="lat" value={value.gps_lat} onChange={(e) => set({ gps_lat: e.target.value })} />
-        <input placeholder="lng" value={value.gps_lng} onChange={(e) => set({ gps_lng: e.target.value })} />
-        <button type="button" className="iconbtn" style={{ background: 'var(--navy)' }} onClick={grabGps}>Grab</button>
+        <input placeholder="lat" value={value.gps_lat} onChange={(e) => { setGpsNote(null); set({ gps_lat: e.target.value }); }} />
+        <input placeholder="lng" value={value.gps_lng} onChange={(e) => { setGpsNote(null); set({ gps_lng: e.target.value }); }} />
+        <button type="button" className="iconbtn" style={{ background: 'var(--navy)' }} onClick={grabGps} disabled={gpsBusy}>
+          {gpsBusy ? '…' : 'Grab'}
+        </button>
       </div>
+      {gpsNote && (
+        <p className={gpsNote.rough ? 'error small' : 'muted small'} style={{ marginTop: 4 }}>{gpsNote.text}</p>
+      )}
 
       {/* A dropped minus sign puts the hole in China. It has happened five times
           already, to two different techs, always on hand-typed coordinates -

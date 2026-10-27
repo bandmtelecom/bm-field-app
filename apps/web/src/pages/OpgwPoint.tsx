@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { useSession } from '../lib/session';
 import { splitNames, joinNames, todayLocal } from '../lib/num';
 import { visitDateProblem, isBackdated, shortDay } from '../lib/visitDate';
+import { grabBestFix, fixMessage, accuracyLabel, isRough, fmt } from '../lib/gpsGrab';
 import {
   SPLICE_TYPES, CABLE_COUNTS, emptyOpgwForm, formFromPoint, formProblems, rowFromForm,
   parseCoordPair, looksEastern, customerLabel, type OpgwForm, type OpgwPoint,
@@ -34,6 +35,8 @@ export default function OpgwPointPage() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string[] | null>(null);
   const [gpsErr, setGpsErr] = useState<string | null>(null);
+  const [gpsNote, setGpsNote] = useState<string | null>(null);
+  const [gpsBusy, setGpsBusy] = useState<'gps' | 'row' | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
@@ -70,17 +73,24 @@ export default function OpgwPointPage() {
     else set({ [`${which}_${axis}`]: value } as Partial<OpgwForm>);
   }
 
+  // Listens for up to 20 s and keeps the best reading — see lib/gpsGrab.ts.
   function grab(which: 'gps' | 'row') {
-    setGpsErr(null);
-    if (!navigator.geolocation) { setGpsErr('This phone will not give a GPS fix. Type it in.'); return; }
-    navigator.geolocation.getCurrentPosition(
-      (p) => {
-        const lat = p.coords.latitude.toFixed(6), lng = p.coords.longitude.toFixed(6);
-        set(which === 'gps' ? { gps_lat: lat, gps_lng: lng } : { row_lat: lat, row_lng: lng });
-      },
-      () => setGpsErr('Could not get GPS. Step out from under the steel and try again, or type it in.'),
-      { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 },
-    );
+    if (gpsBusy) return;
+    setGpsErr(null); setGpsBusy(which);
+    const put = (lat: number, lng: number) => set(which === 'gps'
+      ? { gps_lat: fmt(lat), gps_lng: fmt(lng) } : { row_lat: fmt(lat), row_lng: fmt(lng) });
+    setGpsNote('Getting a GPS lock… hold still, up to 20 seconds.');
+    const { done } = grabBestFix((best) => {
+      put(best.lat, best.lng);
+      setGpsNote(`Getting a GPS lock… ${accuracyLabel(best.accuracyFt)} so far.`);
+    });
+    done
+      .then((f) => {
+        put(f.lat, f.lng);
+        if (isRough(f)) { setGpsNote(null); setGpsErr(fixMessage(f)); } else setGpsNote(fixMessage(f));
+      })
+      .catch(() => { setGpsNote(null); setGpsErr('Could not get GPS. Step out from under the steel and try again, or type it in.'); })
+      .finally(() => setGpsBusy(null));
   }
 
   async function save() {
@@ -213,6 +223,7 @@ export default function OpgwPointPage() {
             )}
           </div>
         )}
+        {gpsNote && <p className="muted small">{gpsNote}</p>}
         {gpsErr && <div className="error">{gpsErr}</div>}
 
         {isSplice && (

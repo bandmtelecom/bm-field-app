@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabase';
+import { grabBestFix } from '../lib/gpsGrab';
 import { kmlUrl } from '../lib/api';
 import {
   closuresNear, searchClosures, listClosures, cableLabel, distanceLabel,
@@ -56,15 +57,14 @@ export default function Closures() {
     if (!customerId) { setMsg('Pick the customer first.'); return; }
     if (!navigator.geolocation) { setMsg('This phone will not give up its location.'); return; }
     setBusy(true); setMsg(null); setMode('near'); setAll(null);
-    navigator.geolocation.getCurrentPosition(
-      (p) => {
-        const here = { lat: p.coords.latitude, lng: p.coords.longitude };
+    // Best reading over a few seconds, not the phone's first guess (lib/gpsGrab.ts).
+    grabBestFix(undefined, 10000).done
+      .then((f) => {
+        const here = { lat: f.lat, lng: f.lng };
         setAt(here);
         runNear(here.lat, here.lng, radiusFt);
-      },
-      () => { setMsg('Could not get your location — check the app has permission.'); setBusy(false); },
-      { enableHighAccuracy: true, timeout: 10000 },
-    );
+      })
+      .catch(() => { setMsg('Could not get your location — check the app has permission.'); setBusy(false); });
   }
 
   /** Widen (or tighten) without asking the phone for a new fix. */
